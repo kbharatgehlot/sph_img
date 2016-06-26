@@ -1,29 +1,15 @@
 import os
-import imp
 import sys
-import imp
 import time
 import shutil
-import warnings
 
 import numpy as np
 
 import matplotlib as mpl
 mpl.use('Agg')
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 
-from libwise import plotutils, imgutils, nputils
 from libwise import scriptshelper as sh
 
-from scipy.special import sph_harm, jv, jn, sph_jn
-from scipy.sparse.linalg import cg, cgs, spilu, lgmres
-
-from uncertainties import ufloat
-
-import healpy as hp
-
-import util
 import sphimg
 
 
@@ -55,11 +41,16 @@ def main():
         print "Configuration file %s does not exist" % config_file
         sh.usage(True)
 
+    if 'OMP_NUM_THREADS' not in os.environ:
+        print "\nOMP_NUM_THREADS not set"
+    else:
+        print "Maximum number of threads used:", os.environ['OMP_NUM_THREADS']
+
     print "\nCreating test directory: %s\n" % result_dir
     os.mkdir(result_dir)
     shutil.copyfile(config_file, os.path.join(result_dir, 'config.py'))
 
-    config = imp.load_source('config', os.path.join(result_dir, 'config.py'))
+    config = sphimg.get_config(result_dir)
 
     sphimg.do_inversion(config, result_dir)
 

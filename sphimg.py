@@ -1,9 +1,7 @@
 import os
 import imp
-import sys
-import imp
+import glob
 import time
-import shutil
 import warnings
 
 import numpy as np
@@ -11,18 +9,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-from libwise import plotutils, imgutils, nputils
+from libwise import plotutils, nputils
 from libwise import scriptshelper as sh
 
-from scipy.special import sph_harm, jv, jn, sph_jn
-from scipy.sparse.linalg import cg, cgs, spilu, lgmres
-
-from uncertainties import ufloat
+from scipy.sparse.linalg import cg
 
 import healpy as hp
 
 import util
-
 
 
 def plot_sky(alm, ll, mm, nside, title='', savefile=None):
@@ -157,7 +151,7 @@ def plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, fisher_error, save
 
     lm_map = util.get_lm_map(abs(sel_vlm), sel_ll, sel_mm)
     lm_map_rec = util.get_lm_map(abs(vlm_rec), sel_ll, sel_mm)
-    lm_map_fisher_error = util.get_lm_map(fisher_error, sel_ll, sel_mm)
+    lm_map_fisher_error = util.get_lm_map(abs(fisher_error), sel_ll, sel_mm)
 
     extent = (min(sel_ll), max(sel_ll), min(sel_mm), max(sel_mm))
 
@@ -431,7 +425,8 @@ def get_out_lm_sampling(ll, mm, config):
 
 def compute_visibilities(alm, ll, mm, uphis, uthetas, ru, global_ylm):
     ylm = global_ylm.get(ll, mm, uphis, uthetas)
-    jn = util.get_jn(ll, ru)
+    # jn = util.get_jn(ll, ru)
+    jn = util.JnMatrix(ll, ru).get(ll, ru)
 
     trm = util.get_alm2vis_matrix(ll, mm, ylm, jn)
 
@@ -444,7 +439,8 @@ def compute_visibilities(alm, ll, mm, uphis, uthetas, ru, global_ylm):
 def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simulate=False):
     print "Building transformation matrix..."
     ylm = global_ylm.get(ll, mm, uphis, uthetas)
-    jn = util.get_jn(ll, ru)
+    # jn = util.get_jn(ll, ru)
+    jn = util.JnMatrix(ll, ru).get(ll, ru)
 
     trm = util.get_alm2vis_matrix(ll, mm, ylm, jn)
 
@@ -491,6 +487,59 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
     return alm_rec, Vrec, fisher_error
 
 
+def get_config(dirname):
+    return imp.load_source('config', os.path.join(dirname, 'config.py'))
+
+
+def save_alm(dirname, ll, mm, alm, alm_rec, fisher_error):
+    filename = os.path.join(dirname, 'alm.dat')
+    print "Saving alm result to:", filename
+
+    np.savetxt(filename, np.array([ll, mm, alm.real, alm.imag, alm_rec.real, alm_rec.imag, fisher_error.real, fisher_error.imag]).T)
+
+
+def load_alm(dirname):
+    filename = os.path.join(dirname, 'alm.dat')
+    print "Loading alm result from:", filename
+
+    ll, mm, alm_real, alm_imag, alm_rec_real, alm_rec_imag, fisher_error_real, fisher_error_imag = np.loadtxt(filename).T
+
+    return ll, mm, alm_real + 1j * alm_imag, alm_rec_real + 1j * alm_rec_imag, fisher_error_real + 1j * fisher_error_imag
+
+
+def save_visibilities(dirname, ru, uphis, uthetas, Vobs, Vrec):
+    filename = os.path.join(dirname, 'visibilities.dat')
+    print "Saving visibilities result to:", filename
+
+    np.savetxt(filename, np.array([ru, uphis, uthetas, Vobs.real, Vobs.imag, Vrec.real, Vrec.imag]).T)
+
+
+def load_visibilities(dirname):
+    filename = os.path.join(dirname, 'visibilities.dat')
+    print "Loading visibilities result feom:", filename
+
+    ru, uphis, uthetas, Vobs_real, Vobs_imag, Vrec_real, Vrec_imag = np.loadtxt(filename).T
+
+    return ru, uphis, uthetas, Vobs_real + 1j * Vobs_imag, Vrec_real + 1j * Vrec_imag
+
+
+def load_results(dirname):
+    if not os.path.exists(dirname):
+        print "Path does not exists:", dirname
+        return
+
+    print "loading result from %s ..." % dirname
+    freq_res = []
+    for freq_dir in sorted(glob.glob(os.path.join(dirname, 'freq_*'))):
+        ll, mm, alm, alm_rec, fisher_error = load_alm(freq_dir)
+        ru, uphis, uthetas, Vobs, Vrec = load_visibilities(freq_dir)
+        freq_res.append([alm, alm_rec, fisher_error, ru, uphis, uthetas, Vobs, Vrec])
+
+    alm, alm_rec, fisher_error, ru, uphis, uthetas, Vobs, Vrec = zip(*freq_res)
+
+    return ll, mm, alm, alm_rec, fisher_error, ru, uphis, uthetas, Vobs, Vrec
+
+
 def do_inversion(config, result_dir):
     full_ll, full_mm, full_alms = simulate_sky(config)
     plot_sky_cart(full_alms[0], full_ll, full_mm, config.nside, theta_max=config.fwhm,
@@ -514,7 +563,7 @@ def do_inversion(config, result_dir):
     uniq, idx_uniq = np.unique(util.real_pairing(all_thetas, all_phis), return_index=True)
 
     global_ylm = util.YlmCachedMatrix(inp_ll, inp_mm, all_phis[idx_uniq], 
-                                      all_thetas[idx_uniq], config.cache_dir)
+                      all_thetas[idx_uniq], config.cache_dir, keep_in_mem=config.keep_in_mem)
 
     alms_rec = []
 
@@ -545,6 +594,9 @@ def do_inversion(config, result_dir):
                                          ru[i], global_ylm, config)
 
         alms_rec.append(alm_rec)
+
+        save_alm(result_freq_dir, sel_ll, sel_mm, sel_alm, alm_rec, fisher_error)
+        save_visibilities(result_freq_dir, ru[i], uphis[i], uthetas[i], Vobs, Vrec)
 
         vlm_rec = util.alm2vlm(alm_rec, sel_ll)
 

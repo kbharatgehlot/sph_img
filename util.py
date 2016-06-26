@@ -11,7 +11,7 @@ import tables
 
 import numpy as np
 from astropy import constants as const
-from scipy.special import sph_harm, jv, jn, sph_jn
+from scipy.special import sph_jn
 from libwise import nputils, plotutils
 
 import healpy as hp
@@ -20,7 +20,7 @@ import Ylm
 
 LOFAR_STAT_POS = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'statpos.data')
 
-NUM_POOL = 4
+NUM_POOL = os.environ.get('OMP_NUM_THREADS', 2)
 
 nputils.set_random_seed(10)
 
@@ -141,21 +141,52 @@ class Alm2VisTransMatrix(object):
         return alm
 
 
-class CachedMatrix(object):
+class AbstractMatrix(object):
 
-    def __init__(self, name, rows, cols, cache_dir, dtype=np.dtype(np.float64), force_build=False):
-        atom = tables.Atom.from_dtype(dtype)
-        hid = get_hash_list_np_array([rows, cols])
+    def __init__(self, rows, cols, dtype=np.dtype(np.float64)):
         self.rows = np.unique(rows)
         self.cols = np.unique(cols)
+        self.dtype = dtype
+        self.init_matrix()
 
-        if not os.path.exists(cache_dir):
+    def init_matrix(self):
+        self.array = np.zeros((len(self.rows), len(self.cols)), dtype=self.dtype)
+        self.build_matrix(self.array)
+
+    def build_matrix(self, array):
+        pass
+
+    def get(self, rows, cols):
+        rows_uniq, rev_row_idx = np.unique(rows, return_inverse=True)
+        idx_row = np.where(np.in1d(self.rows, rows_uniq))[0]
+
+        cols_uniq, rov_col_idx = np.unique(cols, return_inverse=True)
+        idx_col = np.where(np.in1d(self.cols, cols_uniq))[0]
+
+        return self.array[idx_row, :][rev_row_idx, :][:, idx_col][:, rov_col_idx]
+
+
+class AbstractCachedMatrix(AbstractMatrix):
+
+    def __init__(self, name, rows, cols, cache_dir, dtype=np.dtype(np.float64), 
+                 force_build=False, keep_in_mem=False):
+        self.cache_dir = cache_dir
+        self.force_build = force_build
+        self.name = name
+        self.keep_in_mem = keep_in_mem
+        AbstractMatrix.__init__(self, rows, cols, dtype)
+
+    def init_matrix(self):
+        atom = tables.Atom.from_dtype(self.dtype)
+        hid = get_hash_list_np_array([self.rows, self.cols])
+
+        if not os.path.exists(self.cache_dir):
             print "\nCreating cache directory"
-            os.mkdir(cache_dir)
+            os.mkdir(self.cache_dir)
 
-        cache_file = os.path.join(cache_dir, '%s_%s.cache' % (name, hid))
+        cache_file = os.path.join(self.cache_dir, '%s_%s.cache' % (self.name, hid))
 
-        if not os.path.exists(cache_file) or force_build:
+        if not os.path.exists(cache_file) or self.force_build:
             print '\nBuilding matrix with size: %sx%s ...' % (len(self.rows), len(self.cols))
             start = time.time()
 
@@ -170,32 +201,26 @@ class CachedMatrix(object):
 
             print 'Done in %.2f s' % (time.time() - start)
 
-
         self.h5_file = tables.open_file(cache_file, 'r')
-        self.array = self.h5_file.root.data
+
+        if self.keep_in_mem:
+            self.array = self.h5_file.root.data[:, :]
+        else:
+            self.array = self.h5_file.root.data
 
     def build_matrix(self, array):
         pass
-
-    def get(self, rows, cols):
-        rows_uniq, rev_row_idx = np.unique(rows, return_inverse=True)
-        idx_row = np.where(np.in1d(self.rows, rows_uniq))[0]
-
-        cols_uniq, rov_col_idx = np.unique(cols, return_inverse=True)
-        idx_col = np.where(np.in1d(self.cols, cols_uniq))[0]
-
-        return self.array[idx_row, :][rev_row_idx, :][:, idx_col][:, rov_col_idx]
 
     def close(self):
         self.h5_file.close()
 
 
-class GenericCachedMatrixMultiProcess(CachedMatrix):
+class GenericCachedMatrixMultiProcess(AbstractCachedMatrix):
 
     def __init__(self, name, rows, cols, cache_dir, row_func, dtype=np.dtype(np.float64), 
                  force_build=False):
         self.row_func = row_func
-        CachedMatrix.__init__(self, name, rows, cols, cache_dir, dtype=dtype, force_build=force_build)
+        AbstractCachedMatrix.__init__(self, name, rows, cols, cache_dir, dtype=dtype, force_build=force_build)
 
     def build_matrix(self, array):
         pool = Pool(processes=NUM_POOL)
@@ -205,10 +230,10 @@ class GenericCachedMatrixMultiProcess(CachedMatrix):
             array[i, :] = result.get(timeout=2)
 
 
-class YlmCachedMatrix(CachedMatrix):
+class YlmCachedMatrix(AbstractCachedMatrix):
 
     def __init__(self, ll, mm, phis, thetas, cache_dir, dtype=np.dtype(np.complex128),
-                 force_build=False):
+                 force_build=False, keep_in_mem=False):
         rows, row_idx = np.unique(int_pairing(ll, mm), return_index=True)
         cols, col_idx = np.unique(real_pairing(phis, thetas), return_index=True)
         self.ll = ll[row_idx]
@@ -216,8 +241,8 @@ class YlmCachedMatrix(CachedMatrix):
         self.phis = phis[col_idx]
         self.thetas = thetas[col_idx]
 
-        CachedMatrix.__init__(self, 'ylm', rows, cols, cache_dir, 
-                                 dtype=dtype, force_build=force_build)
+        AbstractCachedMatrix.__init__(self, 'ylm', rows, cols, cache_dir, 
+                                 dtype=dtype, force_build=force_build, keep_in_mem=keep_in_mem)
 
     def build_matrix(self, array):
         pool = Pool(processes=NUM_POOL)
@@ -230,7 +255,24 @@ class YlmCachedMatrix(CachedMatrix):
     def get(self, ll, mm, phis, thetas):
         rows = int_pairing(ll, mm)
         cols = real_pairing(phis, thetas)
-        return CachedMatrix.get(self, rows, cols)
+        return AbstractCachedMatrix.get(self, rows, cols)
+
+
+class JnMatrix(AbstractMatrix):
+
+    def __init__(self, ll, ru):
+        self.ll = np.unique(ll)
+        self.ru = np.unique(ru)
+        AbstractMatrix.__init__(self, self.ll, self.ru, dtype=np.dtype(np.float64))
+
+    def build_matrix(self, array):
+        pool = Pool(processes=NUM_POOL)
+    
+        results_async = [pool.apply_async(sph_jn, (max(self.ll), 2 * np.pi * r)) for r in self.ru]
+            # return np.array([sph_jn(max(uniq), 2 * np.pi * r)[0][uniq][idx] for r in ru]).T
+
+        for i, result in enumerate(results_async):
+            array[:, i] = result.get(timeout=2)[0][self.ll]
 
 
 def get_lm(lmax, lmin=0, dl=1, mmin=0, mmax=-1, dm=1, neg_m=False):
@@ -295,6 +337,12 @@ def get_ylm(ll, mm, phis, thetas):
 def get_jn(ll, ru):
     uniq, idx = np.unique(ll, return_inverse=True)
     return np.array([sph_jn(max(uniq), 2 * np.pi * r)[0][uniq][idx] for r in ru]).T
+
+
+def get_jn_fast(ll, ru):
+    uniq, idx = np.unique(ll, return_inverse=True)
+    uniq_r, idx_r = np.unique(ru, return_inverse=True)
+    return np.array([sph_jn(max(uniq), 2 * np.pi * r)[0][uniq][idx] for r in uniq_r])[idx_r].T
 
 
 def get_lm_map(alm, ll, mm):
@@ -714,16 +762,16 @@ def test_cached_ylm():
     # print mm
     ru, uphis, uthetas = polar_uv(50, 200, 20, 200, rnd_w=True)
     
-    ylm_m = YlmCachedMatrix(ll, mm, uphis, uthetas, os.path.dirname(os.path.realpath(__file__)))
+    ylm_m = YlmCachedMatrix(ll, mm, uphis[0], uthetas[0], os.path.dirname(os.path.realpath(__file__)))
 
     print "Building simple"
     start = time.time()
-    ylm2 = get_ylm(ll, mm, uphis, uthetas)
+    ylm2 = get_ylm(ll, mm, uphis[0], uthetas[0])
     print "Done:", time.time() - start
 
     print "Selecting"
     start = time.time()
-    ylm = ylm_m.get(ll, mm, uphis, uthetas)
+    ylm = ylm_m.get(ll, mm, uphis[0], uthetas[0])
     print "Done:", time.time() - start
 
     # print ylm[:4, :4].real
@@ -731,14 +779,44 @@ def test_cached_ylm():
 
     # print ylm[:4, :4]
     # print ll[:2], mm[:2], uphis[:2], uthetas[:2]
-    print get_ylm(ll[:2], mm[:2], uphis[:2], uthetas[:2])
-    print ylm_m.get(ll[:2], mm[:2], uphis[:2], uthetas[:2])
+    # print get_ylm(ll[:2], mm[:2], uphis[:2], uthetas[:2])
+    # print ylm_m.get(ll[:2], mm[:2], uphis[:2], uthetas[:2])
 
     print np.allclose(ylm, ylm2)
     # print ylm_m.array[:]
     # print ylm2
 
     ylm_m.close()
+
+
+def test_jn():
+    ll, mm = get_lm(200, dl=2)
+    ru, uphis, uthetas = polar_uv(50, 200, 20, 200, rnd_w=True)
+
+    print "Building MP"
+    start = time.time()
+    jn_m = JnMatrix(ll, ru[0])
+    print "Done:", time.time() - start
+
+    print "Building simple"
+    start = time.time()
+    jn2 = get_jn(ll, ru[0])
+    print jn2.shape
+    print "Done:", time.time() - start
+    
+    print "Building simple 2"
+    start = time.time()
+    jn3 = get_jn2(ll, ru[0])
+    print jn3.shape
+    print "Done:", time.time() - start
+
+    print "Selecting"
+    start = time.time()
+    jn = jn_m.get(ll, ru[0])
+    print "Done:", time.time() - start
+
+    print np.allclose(jn, jn2)
+    print np.allclose(jn2, jn3)
 
 
 def test_lm_index():
@@ -778,7 +856,8 @@ if __name__ == '__main__':
     # test_cached_matrix()
     # test_cached_mp_matrix()
     # test_cached_ylm()
-    test_uv_cov()
+    # test_uv_cov()
     # test_lm_index()
     # test_ylm_precision()
     # test_pairing()
+    test_jn()

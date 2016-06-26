@@ -48,3 +48,4 @@ libwise/data/*.data
 .Trashes
 ehthumbs.db
 Thumbs.db
+*.cache
