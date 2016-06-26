@@ -20,7 +20,7 @@ import Ylm
 
 LOFAR_STAT_POS = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'statpos.data')
 
-NUM_POOL = os.environ.get('OMP_NUM_THREADS', 2)
+NUM_POOL = int(os.environ.get('OMP_NUM_THREADS', 2))
 
 nputils.set_random_seed(10)
 
