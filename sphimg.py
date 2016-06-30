@@ -317,7 +317,8 @@ def simulate_sky(config):
 
 def sample_input_alm(config, alms, ll, mm):
     ll_inp, mm_inp = util.get_lm(lmin=config.inp_lmin, lmax=config.inp_lmax, 
-                             dl=config.inp_dl, dm=config.inp_dm)
+                             dl=config.inp_dl, dm=config.inp_dm, 
+                             mmax=config.inp_mmax, mmin=config.inp_mmin)
     theta_max = config.out_theta_max
 
     if config.inp_mmax_strip:
@@ -395,6 +396,7 @@ def simulate_uv_cov(config):
 def get_out_lm_sampling(ll, mm, config):
     lmax = config.out_lmax
     mmax = config.out_mmax
+    mmin = config.out_mmin
     lmin = config.out_lmin
     dl = config.out_dl
     dm = config.out_dm
@@ -402,13 +404,13 @@ def get_out_lm_sampling(ll, mm, config):
 
     if config.out_four_consective:
         dl = 4 * dl
-        ll2a, mm2a = util.get_lm(lmin=lmin, lmax=lmax, dl=dl, mmax=mmax)
-        ll2b, mm2b = util.get_lm(lmin=lmin+1, lmax=lmax, dl=dl, mmax=mmax)
-        ll2c, mm2c = util.get_lm(lmin=lmin+2, lmax=lmax, dl=dl, mmax=mmax)
-        ll2d, mm2d = util.get_lm(lmin=lmin+3, lmax=lmax, dl=dl, mmax=mmax)
+        ll2a, mm2a = util.get_lm(lmin=lmin, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
+        ll2b, mm2b = util.get_lm(lmin=lmin+1, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
+        ll2c, mm2c = util.get_lm(lmin=lmin+2, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
+        ll2d, mm2d = util.get_lm(lmin=lmin+3, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
         ll, mm = util.merge_lm([ll2a, ll2b, ll2c, ll2d], [mm2a, mm2b, mm2c, mm2d])
     else:
-        ll, mm = util.get_lm(lmin=lmin, lmax=lmax, dl=dl, mmax=mmax)
+        ll, mm = util.get_lm(lmin=lmin, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
 
     if config.out_mmax_full_sample >= 0:
         llm0, mmm0 = util.get_lm(lmin=lmin, lmax=lmax, mmax=config.out_mmax_full_sample)

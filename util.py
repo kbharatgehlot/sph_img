@@ -252,6 +252,8 @@ class YlmCachedMatrix(AbstractCachedMatrix):
         for i, result in enumerate(results_async):
             array[i, :] = result.get(timeout=2)
 
+        pool.close()
+
     def get(self, ll, mm, phis, thetas):
         rows = int_pairing(ll, mm)
         cols = real_pairing(phis, thetas)
@@ -273,6 +275,8 @@ class JnMatrix(AbstractMatrix):
 
         for i, result in enumerate(results_async):
             array[:, i] = result.get(timeout=2)[0][self.ll]
+        
+        pool.close()
 
 
 def get_lm(lmax, lmin=0, dl=1, mmin=0, mmax=-1, dm=1, neg_m=False):
@@ -359,6 +363,15 @@ def get_lm_map(alm, ll, mm):
 def alm2map(alm, ll, mm, thetas, phis):
     ylm = get_ylm(ll, mm, phis, thetas)
     return np.dot(alm[mm == 0], ylm[mm == 0, :]) + 2 * (np.dot(alm.real[mm != 0], ylm.real[mm != 0, :]) - np.dot(alm.imag[mm != 0], ylm.imag[mm != 0, :]))
+
+
+def vlm2vis(vlm, ll, mm, uthetas, uphis, rus):
+    ylm = get_ylm(ll, mm, uphis, uthetas)
+    jn = get_jn(ll, rus)
+    trm = Vlm2VisTransMatrix(ll, mm, ylm, jn)
+    vlm_r, vlm_i = trm.split(vlm)
+
+    return np.dot(vlm_r, trm.T_r) + 1j * np.dot(vlm_i, trm.T_i)
 
 
 def fast_alm2map(alm, ll, mm, nside):

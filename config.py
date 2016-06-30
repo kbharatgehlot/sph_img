@@ -17,6 +17,8 @@ synfast_rnd_seed = 125
 
 # Sample the input blm
 inp_lmax = lmax
+inp_mmax = lmax
+inp_mmin = 0
 inp_lmin = 20
 inp_dm = 1
 inp_dl = 1
@@ -80,6 +82,7 @@ out_theta_max = 1 * fwhm
 
 out_lmax = lmax
 out_mmax = lmax
+out_mmin = 0
 out_lmin = inp_lmin
 out_dm = 1
 
