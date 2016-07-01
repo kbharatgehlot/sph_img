@@ -13,6 +13,7 @@ from libwise import plotutils, nputils
 from libwise import scriptshelper as sh
 
 from scipy.sparse.linalg import cg
+from scipy.linalg import block_diag
 
 import healpy as hp
 
@@ -450,22 +451,63 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
     ylm = None
     jn = None
 
-    norm = 1 #len(ll) / float(len(ll))
+    def get_dct_fct(m, t):
+        if t == 'real' and m == 0:
+            return config.dct_fct_r_m0
+        elif t == 'real' and m > 0:
+            return config.dct_fct_r_m1
+        elif t == 'imag' and m == 0:
+            return config.dct_fct_i_m0
+        elif t == 'imag' and m > 0:
+            return config.dct_fct_i_m1
 
-    print '\nSize of transformation matrix: T_r: %s T_i: %s' % (trm.T_r.shape, trm.T_i.shape)
+    if config.use_dct:
+        print "Building DCT Matrix ..."
+        dct_blocks = []
+
+        for sel_block in [trm.m0_l_even, trm.lm_even, trm.lm_even]:
+            for m in np.unique(mm[sel_block]):
+                n = len(ll[sel_block][mm[sel_block] == m])
+                dct_fct = get_dct_fct(m, 'real')
+                dct_blocks.append(dct_fct(n, n / config.dct_dl))
+        dct_real = block_diag(*dct_blocks)
+
+        dct_blocks = []
+
+        for sel_block in [trm.m0_l_odd, trm.lm_odd, trm.lm_odd]:
+            for m in np.unique(mm[sel_block]):
+                n = len(ll[sel_block][mm[sel_block] == m])
+                dct_fct = get_dct_fct(m, 'imag')
+                dct_blocks.append(dct_fct(n, n / config.dct_dl))
+        dct_imag = block_diag(*dct_blocks)
+
+        print "Computing dot products of T and DCT ..."
+        X_r = np.dot(trm.T_r.T, dct_real)
+        X_i = np.dot(trm.T_i.T, dct_imag)
+
+    else:
+        X_r = trm.T_r.T
+        X_i = trm.T_i.T
+
+    print '\nSize of transformation matrix: X_r: %s X_i: %s' % (X_r.shape, X_i.shape)
 
     C_Dinv = np.diag([1 / (config.noiserms ** 2)] * len(Vobs))
 
     print '\nComputing LHS and RHS matrix ...'
-    lhs_r = np.dot(np.dot(trm.T_r, C_Dinv), trm.T_r.T) + np.eye(len(trm.ll_r)) * config.reg_lambda
-    rhs_r = np.dot(np.dot(trm.T_r, C_Dinv), norm * Vobs.real)
+    lhs_r = np.dot(np.dot(X_r.T, C_Dinv), X_r) + np.eye(X_r.shape[1]) * config.reg_lambda
+    rhs_r = np.dot(np.dot(X_r.T, C_Dinv), Vobs.real)
 
-    lhs_i = np.dot(np.dot(trm.T_i, C_Dinv), trm.T_i.T) + np.eye(len(trm.ll_i)) * config.reg_lambda
-    rhs_i = np.dot(np.dot(trm.T_i, C_Dinv), norm * Vobs.imag)
+    lhs_i = np.dot(np.dot(X_i.T, C_Dinv), X_i) + np.eye(X_i.shape[1]) * config.reg_lambda
+    rhs_i = np.dot(np.dot(X_i.T, C_Dinv), Vobs.imag)
 
     print "Building fisher matrix ..."
     fisher_error_i = np.sqrt(np.diag(np.linalg.inv(lhs_i)))
     fisher_error_r = np.sqrt(np.diag(np.linalg.inv(lhs_r)))
+
+    if config.use_dct:
+        fisher_error_r = np.dot(fisher_error_r, dct_real.T)
+        fisher_error_i = np.dot(fisher_error_i, dct_imag.T)
+
     fisher_error = np.abs(trm.recombine(fisher_error_r, fisher_error_i))
 
     if simulate:
@@ -482,6 +524,10 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
     alm_rec_i, info = cg(lhs_i, rhs_i, tol=config.cg_tol, maxiter=config.cg_maxiter)
     res = np.linalg.norm(rhs_i - np.dot(lhs_i, alm_rec_i)) / np.linalg.norm(rhs_i)
     print 'Done in %.2f s. Status: %s, Residual: %s' % (time.time() - start, info, res)
+
+    if config.use_dct:
+        alm_rec_r = np.dot(alm_rec_r, dct_real.T)
+        alm_rec_i = np.dot(alm_rec_i, dct_imag.T)
 
     alm_rec = trm.recombine(alm_rec_r, alm_rec_i)
     Vrec = np.dot(alm_rec_r, trm.T_r) + 1j * np.dot(alm_rec_i, trm.T_i)

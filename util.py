@@ -229,6 +229,8 @@ class GenericCachedMatrixMultiProcess(AbstractCachedMatrix):
         for i, result in enumerate(results_async):
             array[i, :] = result.get(timeout=2)
 
+        pool.close()
+
 
 class YlmCachedMatrix(AbstractCachedMatrix):
 
@@ -341,6 +343,14 @@ def get_ylm(ll, mm, phis, thetas):
 def get_jn(ll, ru):
     uniq, idx = np.unique(ll, return_inverse=True)
     return np.array([sph_jn(max(uniq), 2 * np.pi * r)[0][uniq][idx] for r in ru]).T
+
+
+def get_dct4(n, nk):
+    return np.sqrt(2. / n) * np.cos(np.pi / n * (np.arange(n)[:, np.newaxis] + 0.5) * (np.arange(nk) + 0.5))
+
+
+def get_dst4(n, nk):
+    return np.sqrt(2. / n) * np.sin(np.pi / n * (np.arange(n)[:, np.newaxis] + 0.5) * (np.arange(nk) + 0.5))
 
 
 def get_jn_fast(ll, ru):
