@@ -7,6 +7,7 @@ import warnings
 import numpy as np
 
 import matplotlib.pyplot as plt
+from matplotlib.image import AxesImage
 from mpl_toolkits.mplot3d import Axes3D
 
 from libwise import plotutils, nputils
@@ -50,24 +51,32 @@ def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, sa
     map2 = util.fast_alm2map(alm2, ll2, mm2, nside)
     diff = map1 - map2
 
-    fig = plt.figure(1, figsize=(14, 5))
+    fig = plt.figure(figsize=(14, 5))
     hp.cartview(map1, latra=(-latra, latra), lonra=(-latra, latra), rot=(180, 90),
                            xsize=200, fig=fig, sub=131, cbar=False, title='Input sky')
     hp.graticule(dpar=5, verbose=False)
-    cbs.add_colorbar(fig.axes[0].get_children()[-2], fig.axes[0])
 
     hp.cartview(map2, latra=(-latra, latra), lonra=(-latra, latra), rot=(180, 90), 
                            xsize=200, fig=fig, sub=132, cbar=False, title='Output sky')
     hp.graticule(dpar=5, verbose=False)
-    cbs.add_colorbar(fig.axes[2].get_children()[-2], fig.axes[2])
 
     hp.cartview(diff, latra=(-latra, latra), lonra=(-latra, latra), rot=(180, 90), 
                            xsize=200, fig=fig, sub=133, cbar=False, title='Diff')
     hp.graticule(dpar=5, verbose=False)
-    cbs.add_colorbar(fig.axes[4].get_children()[-2], fig.axes[4])
 
-    fig.axes[4].text(0.95, 0.05, 'std diff: %.3f\nmax diff: %.3f' % (diff.std(), diff.max()), 
+    lastax = None
+
+    for ax in fig.axes:
+        if isinstance(ax, hp.projaxes.HpxCartesianAxes):
+            lastax = ax
+            for art in ax.get_children():
+                if isinstance(art, AxesImage):
+                    cbs.add_colorbar(art, ax)
+
+    if lastax is not None:
+        lastax.text(0.92, 0.05, 'rms residual: %.3e\nmax residual: %.3e' % (diff.std(), diff.max()), 
                      ha='right', va='center', transform=fig.axes[4].transAxes)
+
 
     if savefile is not None:
         fig.set_size_inches(14, 5)
@@ -93,12 +102,20 @@ def plot_uv_cov(uu, vv, ww, title, savefile=None):
 
 
 def plot_visibilities(uu, vv, ww, V, savefile=None):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
+    fig = plt.figure(figsize=(12, 5))
+    ax = fig.add_subplot(121, projection='3d')
     ax.scatter3D(uu, vv, ww, c=abs(V), cmap='jet', norm=plotutils.LogNorm(), lw=0)
     ax.set_xlabel('U')
     ax.set_ylabel('V')
     ax.set_zlabel('W')
+
+    ru, uphis, uthetas = util.cart2sph(uu, vv, ww)
+    ax = fig.add_subplot(122)
+    ax.scatter(ru, abs(V), marker='+')
+    ax.set_yscale('log')
+    ax.set_xlabel('ru')
+    ax.set_ylabel('abs(V)')
+    ax.set_ylim(min(abs(V)), max(abs(V)))
 
     if savefile is not None:
         fig.savefig(savefile)
@@ -145,7 +162,8 @@ def plot_vlm_vs_vlm_rec(sel_ll, sel_mm, sel_vlm, vlm_rec, savefile=None):
         plt.close(fig)
 
 
-def plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, fisher_error, savefile=None):
+def plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, fisher_error, 
+        savefile=None, vmin=1e-6, vmax=1e2):
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(ncols=2, nrows=2, figsize=(10, 10))
 
     cbs = plotutils.ColorbarSetting(plotutils.ColorbarInnerPosition(location=2, height="80%", pad=1))
@@ -156,19 +174,23 @@ def plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, fisher_error, save
 
     extent = (min(sel_ll), max(sel_ll), min(sel_mm), max(sel_mm))
 
-    im_mappable = ax1.imshow(abs(lm_map), norm=plotutils.LogNorm(), vmin=1e-6, vmax=1e2, extent=extent, aspect='auto')
+    im_mappable = ax1.imshow(abs(lm_map), norm=plotutils.LogNorm(), vmin=vmin, 
+                            vmax=vmax, extent=extent, aspect='auto')
     ax1.set_title('Input vlm')
     cbs.add_colorbar(im_mappable, ax1)
 
-    im_mappable = ax2.imshow(abs(lm_map_rec), norm=plotutils.LogNorm(), vmin=1e-6, vmax=1e2, extent=extent, aspect='auto')
+    im_mappable = ax2.imshow(abs(lm_map_rec), norm=plotutils.LogNorm(), vmin=vmin, 
+                            vmax=vmax, extent=extent, aspect='auto')
     ax2.set_title('Recovered vlm')
     cbs.add_colorbar(im_mappable, ax2)
 
-    im_mappable = ax3.imshow(abs(lm_map - lm_map_rec), norm=plotutils.LogNorm(), vmin=1e-6, vmax=1e2, extent=extent, aspect='auto')
+    im_mappable = ax3.imshow(abs(lm_map - lm_map_rec), norm=plotutils.LogNorm(), vmin=vmin, 
+                            vmax=vmax, extent=extent, aspect='auto')
     ax3.set_title('Diff')
     cbs.add_colorbar(im_mappable, ax3)
 
-    im_mappable = ax4.imshow(lm_map_fisher_error, norm=plotutils.LogNorm(), vmin=1e-6, vmax=1e2, extent=extent, aspect='auto')
+    im_mappable = ax4.imshow(lm_map_fisher_error, norm=plotutils.LogNorm(), vmin=vmin, 
+                            vmax=vmax, extent=extent, aspect='auto')
     ax4.set_title('Fisher error')
     cbs.add_colorbar(im_mappable, ax4)
 
@@ -205,7 +227,7 @@ def plot_power_sepctra(ll, mm, alm, sel_ll, sel_mm, alm_rec, config, savefile=No
     ax2.plot(l_sampled, diff, ls='', marker='+')
     ax2.set_xlabel('l')
     ax2.set_ylabel('diff')
-    ax2.text(0.95, 0.05, 'std diff: %s\nmax diff: %s' % (diff.std(), diff.max()), 
+    ax2.text(0.95, 0.05, 'std diff: %.3e\nmax diff: %.3e' % (diff.std(), diff.max()), 
                      ha='right', va='center', transform=ax2.transAxes)
 
     if savefile is not None:
@@ -244,12 +266,15 @@ def plot_vlm_diff(sel_ll, sel_mm, sel_vlm, vlm_rec, savefile=None):
     ax1.set_xlabel('m')
     ax1.set_ylabel('abs(vlm.real - vlm_rec.real)')
 
-    ax2.scatter(sel_ll, abs(vlm_rec.real - sel_vlm.real), c='green', marker='+', label='Input')
+    diff = vlm_rec.real - sel_vlm.real
+    ax2.scatter(sel_ll, abs(diff), c='green', marker='+', label='Input')
     ax2.set_yscale('log')
     ax2.set_ylim(1e-5, 1e-1)
     ax2.set_xlim(0, max(sel_ll))
     ax2.set_xlabel('l')
     ax2.set_ylabel('abs(vlm.real - vlm_rec.real)')
+    ax2.text(0.02, 0.95, 'std diff: %.3e\nmax diff: %.3e' % (diff.std(), abs(diff).max()), 
+                     ha='left', va='center', transform=ax2.transAxes)
 
     if savefile is not None:
         fig.savefig(savefile)
@@ -464,22 +489,30 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
     if config.use_dct:
         print "Building DCT Matrix ..."
         dct_blocks = []
+        dct_blocks_full = []
 
         for sel_block in [trm.m0_l_even, trm.lm_even, trm.lm_even]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
+                nk = int(np.round(n / config.dct_dl))
                 dct_fct = get_dct_fct(m, 'real')
-                dct_blocks.append(dct_fct(n, n / config.dct_dl))
+                dct_blocks.append(dct_fct(n, nk))
+                dct_blocks_full.append(dct_fct(n, nk, nki=n))
         dct_real = block_diag(*dct_blocks)
+        dct_real_full = block_diag(*dct_blocks_full)
 
         dct_blocks = []
+        dct_blocks_full = []
 
         for sel_block in [trm.m0_l_odd, trm.lm_odd, trm.lm_odd]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
+                nk = int(np.round(n / config.dct_dl))
                 dct_fct = get_dct_fct(m, 'imag')
-                dct_blocks.append(dct_fct(n, n / config.dct_dl))
+                dct_blocks.append(dct_fct(n, nk))
+                dct_blocks_full.append(dct_fct(n, nk, nki=n))
         dct_imag = block_diag(*dct_blocks)
+        dct_imag_full = block_diag(*dct_blocks_full)
 
         print "Computing dot products of T and DCT ..."
         X_r = np.dot(trm.T_r.T, dct_real)
@@ -494,6 +527,8 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
     C_Dinv = np.diag([1 / (config.noiserms ** 2)] * len(Vobs))
 
     print '\nComputing LHS and RHS matrix ...'
+    #PERF: quite some time is passed here as well, on both (about 6-s for a 14k by 2k matrix)
+    # check C contious, etc...
     lhs_r = np.dot(np.dot(X_r.T, C_Dinv), X_r) + np.eye(X_r.shape[1]) * config.reg_lambda
     rhs_r = np.dot(np.dot(X_r.T, C_Dinv), Vobs.real)
 
@@ -505,8 +540,8 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
     fisher_error_r = np.sqrt(np.diag(np.linalg.inv(lhs_r)))
 
     if config.use_dct:
-        fisher_error_r = np.dot(fisher_error_r, dct_real.T)
-        fisher_error_i = np.dot(fisher_error_i, dct_imag.T)
+        fisher_error_r = np.dot(np.dot(fisher_error_r, dct_real.T), dct_real_full)
+        fisher_error_i = np.dot(np.dot(fisher_error_i, dct_imag.T), dct_imag_full)
 
     fisher_error = np.abs(trm.recombine(fisher_error_r, fisher_error_i))
 
@@ -559,12 +594,13 @@ def save_visibilities(dirname, ru, uphis, uthetas, Vobs, Vrec):
     filename = os.path.join(dirname, 'visibilities.dat')
     print "Saving visibilities result to:", filename
 
-    np.savetxt(filename, np.array([ru, uphis, uthetas, Vobs.real, Vobs.imag, Vrec.real, Vrec.imag]).T)
+    np.savetxt(filename, np.array([ru, uphis, uthetas,
+        Vobs.real, Vobs.imag, Vrec.real, Vrec.imag]).T)
 
 
 def load_visibilities(dirname):
     filename = os.path.join(dirname, 'visibilities.dat')
-    print "Loading visibilities result feom:", filename
+    print "Loading visibilities result from:", filename
 
     ru, uphis, uthetas, Vobs_real, Vobs_imag, Vrec_real, Vrec_imag = np.loadtxt(filename).T
 
@@ -577,15 +613,16 @@ def load_results(dirname):
         return
 
     print "loading result from %s ..." % dirname
+    key_fct = lambda a: int(a.split('_')[-1])
     freq_res = []
-    for freq_dir in sorted(glob.glob(os.path.join(dirname, 'freq_*'))):
+    for freq_dir in sorted(glob.glob(os.path.join(dirname, 'freq_*')), key=key_fct):
         ll, mm, alm, alm_rec, fisher_error = load_alm(freq_dir)
         ru, uphis, uthetas, Vobs, Vrec = load_visibilities(freq_dir)
         freq_res.append([alm, alm_rec, fisher_error, ru, uphis, uthetas, Vobs, Vrec])
 
     alm, alm_rec, fisher_error, ru, uphis, uthetas, Vobs, Vrec = zip(*freq_res)
 
-    return ll, mm, alm, alm_rec, fisher_error, ru, uphis, uthetas, Vobs, Vrec
+    return ll.astype(int), mm.astype(int), alm, alm_rec, fisher_error, ru, uphis, uthetas, Vobs, Vrec
 
 
 def do_inversion(config, result_dir):

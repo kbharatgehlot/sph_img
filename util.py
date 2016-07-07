@@ -105,6 +105,7 @@ class Alm2VisTransMatrix(object):
 
         p_m0 = ((-1) ** (ll[self.m0_l_even] / 2))[:, np.newaxis]
         p_mp = ((-1) ** (ll[self.lm_even] / 2))[:, np.newaxis]
+        # PERF: loosing quite some time here. could be two time faster if ylm was c contigous
         self.T_r = 4 * np.pi * np.vstack((p_m0 * ylm.real[self.m0_l_even, :] * jn[self.m0_l_even, :], 
                         p_mp * 2 * ylm.real[self.lm_even, :] * jn[self.lm_even, :], 
                         p_mp * -2 * ylm.imag[self.lm_even, :] * jn[self.lm_even, :]))
@@ -163,6 +164,7 @@ class AbstractMatrix(object):
         cols_uniq, rov_col_idx = np.unique(cols, return_inverse=True)
         idx_col = np.where(np.in1d(self.cols, cols_uniq))[0]
 
+        #PERF: this time quite some time.
         return self.array[idx_row, :][rev_row_idx, :][:, idx_col][:, rov_col_idx]
 
 
@@ -345,13 +347,37 @@ def get_jn(ll, ru):
     return np.array([sph_jn(max(uniq), 2 * np.pi * r)[0][uniq][idx] for r in ru]).T
 
 
-def get_dct4(n, nk):
-    return np.sqrt(2. / n) * np.cos(np.pi / n * (np.arange(n)[:, np.newaxis] + 0.5) * (np.arange(nk) + 0.5))
+def get_dct(n, nk, ni=None, nki=None, s=0, sk=0, fct=np.cos):
+    if ni == None:
+        ni = n
+    if nki == None:
+        nki = nk
+    a = np.linspace(0, n - 1, ni)[:, np.newaxis] + s
+    b = np.linspace(0, nk - 1, nki) + sk
+    return np.sqrt(2. / n) * fct(np.pi / n * a * b)
 
 
-def get_dst4(n, nk):
-    return np.sqrt(2. / n) * np.sin(np.pi / n * (np.arange(n)[:, np.newaxis] + 0.5) * (np.arange(nk) + 0.5))
+def get_dct4(n, nk, ni=None, nki=None):
+    return get_dct(n, nk, ni=ni, nki=nki, s=0.5, sk=0.5)
 
+
+def get_dst4(n, nk, ni=None, nki=None):
+    return get_dct(n, nk, ni=ni, nki=nki, s=0.5, sk=0.5, fct=np.sin)
+
+
+def get_dct2(n, nk, ni=None, nki=None):
+    dct = get_dct(n, nk, ni=ni, nki=nki, s=0.5, sk=0)
+   # dct = np.sqrt(2. / n) * np.cos(np.pi / n * (np.arange(n)[:, np.newaxis] + 0.5) * (np.arange(nk)))
+    dct[:, 0] = dct[:, 0] / np.sqrt(2)
+    
+    return dct
+
+def get_dct3(n, nk, ni=None, nki=None):
+    dct = get_dct(n, nk, ni=ni, nki=nki, s=0, sk=0.5)
+    # dct = np.sqrt(2. / n) * np.cos(np.pi / n * (np.arange(n)[:, np.newaxis]) * (np.arange(nk) + 0.5))
+    dct[0, :] = 1 / np.sqrt(n)
+    
+    return dct
 
 def get_jn_fast(ll, ru):
     uniq, idx = np.unique(ll, return_inverse=True)
@@ -376,6 +402,7 @@ def alm2map(alm, ll, mm, thetas, phis):
 
 
 def vlm2vis(vlm, ll, mm, uthetas, uphis, rus):
+    #PERF: update with faster verson of ylm, jn
     ylm = get_ylm(ll, mm, uphis, uthetas)
     jn = get_jn(ll, rus)
     trm = Vlm2VisTransMatrix(ll, mm, ylm, jn)
@@ -713,7 +740,9 @@ def test_uv_cov():
     # plt.ylabel('uphis')
     # plt.show()
 
-    uu, vv, ww = lofar_uv([35, 40, 45], 45, -6, 6, 0, 30, 600, min_max_is_baselines=False)
+    freqs = np.arange(110, 170, 5)
+    # freqs = [150.]
+    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 0, 250, 200, min_max_is_baselines=False)
     plt.figure()
     colors = plotutils.ColorSelector()
     uphis = []
@@ -722,10 +751,10 @@ def test_uv_cov():
         ru, uphi, utheta = cart2sph(u, v, w)
         # print ru
         # print len(np.unique(uphi)), len(np.unique(utheta))
-        print len(ru), len(np.unique(np.round(ru, decimals=2))), len(np.unique(np.round(uphi, decimals=12))), len(np.unique(np.round(utheta, decimals=12)))
+        print len(ru), min(ru), max(ru), len(np.unique(np.round(ru, decimals=2))), len(np.unique(np.round(uphi, decimals=12))), len(np.unique(np.round(utheta, decimals=12)))
         uphis.extend(uphi)
         uthetas.extend(utheta)
-        plt.scatter(u, v, c=colors.get(), marker='+')
+        plt.scatter(u, v, c=colors.get(), marker='+', s=1)
         # plt.scatter(ru, uphi, c=colors.get())
     # print len(np.unique(uphis)), len(np.unique(uthetas))
     # print len(np.unique(zip(np.round(uphis, decimals=14), np.round(uthetas, decimals=14))))
@@ -879,8 +908,8 @@ if __name__ == '__main__':
     # test_cached_matrix()
     # test_cached_mp_matrix()
     # test_cached_ylm()
-    # test_uv_cov()
+    test_uv_cov()
     # test_lm_index()
     # test_ylm_precision()
     # test_pairing()
-    test_jn()
+    # test_jn()
