@@ -47,23 +47,23 @@ class Vlm2VisTransMatrix(object):
         self.m0_l_even = ((mm == 0) & np.logical_not(is_odd(ll))).astype(bool)
         self.ll_r = np.hstack((ll[self.m0_l_even], ll[self.lm_even], ll[self.lm_even]))
         self.mm_r = np.hstack((mm[self.m0_l_even], mm[self.lm_even], mm[self.lm_even]))
-        self.T_r = np.vstack((ylm.real[self.m0_l_even, :] * jn[self.m0_l_even, :], 
-                        2 * ylm.real[self.lm_even, :] * jn[self.lm_even, :], 
-                        - 2 * ylm.imag[self.lm_even, :] * jn[self.lm_even, :]))
+        self.T_r = np.vstack((ylm.real[self.m0_l_even, :] * jn[self.m0_l_even, :],
+                              2 * ylm.real[self.lm_even, :] * jn[self.lm_even, :],
+                              - 2 * ylm.imag[self.lm_even, :] * jn[self.lm_even, :]))
 
         self.lm_odd = ((mm != 0) & (is_odd(ll))).astype(bool)
         self.m0_l_odd = ((mm == 0) & (is_odd(ll))).astype(bool)
         self.ll_i = np.hstack((ll[self.m0_l_odd], ll[self.lm_odd], ll[self.lm_odd]))
         self.mm_i = np.hstack((mm[self.m0_l_odd], mm[self.lm_odd], mm[self.lm_odd]))
-        self.T_i = np.vstack((ylm.real[self.m0_l_odd, :] * jn[self.m0_l_odd, :], 
-                        2 * ylm.imag[self.lm_odd, :] * jn[self.lm_odd, :], 
-                        2 * ylm.real[self.lm_odd, :] * jn[self.lm_odd, :]))
+        self.T_i = np.vstack((ylm.real[self.m0_l_odd, :] * jn[self.m0_l_odd, :],
+                              2 * ylm.imag[self.lm_odd, :] * jn[self.lm_odd, :],
+                              2 * ylm.real[self.lm_odd, :] * jn[self.lm_odd, :]))
 
     def split(self, vlm):
         ''' Split the vlm to be used to recover Re(V) and Im(V) independently'''
         vlm_r = np.hstack((vlm.real[self.m0_l_even], vlm.real[self.lm_even], vlm.imag[self.lm_even]))
         vlm_i = np.hstack((vlm.imag[self.m0_l_odd], vlm.real[self.lm_odd], vlm.imag[self.lm_odd]))
-        
+
         return (vlm_r, vlm_i)
 
     def recombine(self, vlm_r, vlm_i):
@@ -72,7 +72,7 @@ class Vlm2VisTransMatrix(object):
         split_i = (self.m0_l_odd.sum(), self.m0_l_odd.sum() + self.lm_odd.sum())
 
         vlm = np.zeros(self.lm_size, dtype=np.complex)
-        vlm[self.m0_l_even] = vlm_r[:split_r[0]] 
+        vlm[self.m0_l_even] = vlm_r[:split_r[0]]
         vlm[self.m0_l_odd] = 1j * vlm_i[:split_i[0]]
         vlm[self.lm_even] = vlm_r[split_r[0]:split_r[1]] + 1j * vlm_r[split_r[1]:]
         vlm[self.lm_odd] = vlm_i[split_i[0]:split_i[1]] + 1j * vlm_i[split_i[1]:]
@@ -106,9 +106,9 @@ class Alm2VisTransMatrix(object):
         p_m0 = ((-1) ** (ll[self.m0_l_even] / 2))[:, np.newaxis]
         p_mp = ((-1) ** (ll[self.lm_even] / 2))[:, np.newaxis]
         # PERF: loosing quite some time here. could be two time faster if ylm was c contigous
-        self.T_r = 4 * np.pi * np.vstack((p_m0 * ylm.real[self.m0_l_even, :] * jn[self.m0_l_even, :], 
-                        p_mp * 2 * ylm.real[self.lm_even, :] * jn[self.lm_even, :], 
-                        p_mp * -2 * ylm.imag[self.lm_even, :] * jn[self.lm_even, :]))
+        self.T_r = 4 * np.pi * np.vstack((p_m0 * ylm.real[self.m0_l_even, :] * jn[self.m0_l_even, :],
+                                          p_mp * 2 * ylm.real[self.lm_even, :] * jn[self.lm_even, :],
+                                          p_mp * -2 * ylm.imag[self.lm_even, :] * jn[self.lm_even, :]))
 
         self.lm_odd = ((mm != 0) & (is_odd(ll))).astype(bool)
         self.m0_l_odd = ((mm == 0) & (is_odd(ll))).astype(bool)
@@ -117,15 +117,15 @@ class Alm2VisTransMatrix(object):
 
         p_m0 = ((-1) ** (ll[self.m0_l_odd] / 2))[:, np.newaxis]
         p_mp = ((-1) ** (ll[self.lm_odd] / 2))[:, np.newaxis]
-        self.T_i = - 4 * np.pi * np.vstack((p_m0 * ylm.real[self.m0_l_odd, :] * jn[self.m0_l_odd, :], 
-                        p_mp * 2 * ylm.real[self.lm_odd, :] * jn[self.lm_odd, :], 
-                        p_mp * -2 * ylm.imag[self.lm_odd, :] * jn[self.lm_odd, :]))
+        self.T_i = - 4 * np.pi * np.vstack((p_m0 * ylm.real[self.m0_l_odd, :] * jn[self.m0_l_odd, :],
+                                            p_mp * 2 * ylm.real[self.lm_odd, :] * jn[self.lm_odd, :],
+                                            p_mp * -2 * ylm.imag[self.lm_odd, :] * jn[self.lm_odd, :]))
 
     def split(self, alm):
         ''' Split the alm to be used to recover Re(V) and Im(V) independently'''
         alm_r = np.hstack((alm.real[self.m0_l_even], alm.real[self.lm_even], alm.imag[self.lm_even]))
         alm_i = np.hstack((alm.real[self.m0_l_odd], alm.real[self.lm_odd], alm.imag[self.lm_odd]))
-        
+
         return (alm_r, alm_i)
 
     def recombine(self, alm_r, alm_i):
@@ -134,7 +134,7 @@ class Alm2VisTransMatrix(object):
         split_i = (self.m0_l_odd.sum(), self.m0_l_odd.sum() + self.lm_odd.sum())
 
         alm = np.zeros(self.lm_size, dtype=np.complex)
-        alm[self.m0_l_even] = alm_r[:split_r[0]] 
+        alm[self.m0_l_even] = alm_r[:split_r[0]]
         alm[self.m0_l_odd] = alm_i[:split_i[0]]
         alm[self.lm_even] = alm_r[split_r[0]:split_r[1]] + 1j * alm_r[split_r[1]:]
         alm[self.lm_odd] = alm_i[split_i[0]:split_i[1]] + 1j * alm_i[split_i[1]:]
@@ -164,13 +164,13 @@ class AbstractMatrix(object):
         cols_uniq, rov_col_idx = np.unique(cols, return_inverse=True)
         idx_col = np.where(np.in1d(self.cols, cols_uniq))[0]
 
-        #PERF: this time quite some time.
+        # PERF: this time quite some time.
         return self.array[idx_row, :][rev_row_idx, :][:, idx_col][:, rov_col_idx]
 
 
 class AbstractCachedMatrix(AbstractMatrix):
 
-    def __init__(self, name, rows, cols, cache_dir, dtype=np.dtype(np.float64), 
+    def __init__(self, name, rows, cols, cache_dir, dtype=np.dtype(np.float64),
                  force_build=False, keep_in_mem=False):
         self.cache_dir = cache_dir
         self.force_build = force_build
@@ -193,9 +193,9 @@ class AbstractCachedMatrix(AbstractMatrix):
             start = time.time()
 
             cache_file_temp = cache_file + '.temp'
-            
+
             with tables.open_file(cache_file_temp, 'w') as h5_file:
-                array = h5_file.create_array('/', 'data', shape=(len(self.rows), len(self.cols)), 
+                array = h5_file.create_array('/', 'data', shape=(len(self.rows), len(self.cols)),
                                              atom=atom)
                 self.build_matrix(array)
 
@@ -219,7 +219,7 @@ class AbstractCachedMatrix(AbstractMatrix):
 
 class GenericCachedMatrixMultiProcess(AbstractCachedMatrix):
 
-    def __init__(self, name, rows, cols, cache_dir, row_func, dtype=np.dtype(np.float64), 
+    def __init__(self, name, rows, cols, cache_dir, row_func, dtype=np.dtype(np.float64),
                  force_build=False):
         self.row_func = row_func
         AbstractCachedMatrix.__init__(self, name, rows, cols, cache_dir, dtype=dtype, force_build=force_build)
@@ -245,14 +245,14 @@ class YlmCachedMatrix(AbstractCachedMatrix):
         self.phis = phis[col_idx]
         self.thetas = thetas[col_idx]
 
-        AbstractCachedMatrix.__init__(self, 'ylm', rows, cols, cache_dir, 
-                                 dtype=dtype, force_build=force_build, keep_in_mem=keep_in_mem)
+        AbstractCachedMatrix.__init__(self, 'ylm', rows, cols, cache_dir,
+                                      dtype=dtype, force_build=force_build, keep_in_mem=keep_in_mem)
 
     def build_matrix(self, array):
         pool = Pool(processes=NUM_POOL)
 
-        results_async = [pool.apply_async(Ylm.Ylm, (l, m, self.phis, self.thetas)) \
-                            for l, m in zip(self.ll, self.mm)]
+        results_async = [pool.apply_async(Ylm.Ylm, (l, m, self.phis, self.thetas))
+                         for l, m in zip(self.ll, self.mm)]
         for i, result in enumerate(results_async):
             array[i, :] = result.get(timeout=2)
 
@@ -273,13 +273,12 @@ class JnMatrix(AbstractMatrix):
 
     def build_matrix(self, array):
         pool = Pool(processes=NUM_POOL)
-    
+
         results_async = [pool.apply_async(sph_jn, (max(self.ll), 2 * np.pi * r)) for r in self.ru]
-            # return np.array([sph_jn(max(uniq), 2 * np.pi * r)[0][uniq][idx] for r in ru]).T
 
         for i, result in enumerate(results_async):
             array[:, i] = result.get(timeout=2)[0][self.ll]
-        
+
         pool.close()
 
 
@@ -297,7 +296,7 @@ def get_lm(lmax, lmin=0, dl=1, mmin=0, mmax=-1, dm=1, neg_m=False):
     for m in all_m:
         m_l = all_l[all_l >= abs(m)]
         mm.extend([m] * len(m_l))
-        if m <0:
+        if m < 0:
             ll.extend(m_l[::-1])
         else:
             ll.extend(m_l)
@@ -348,9 +347,9 @@ def get_jn(ll, ru):
 
 
 def get_dct(n, nk, ni=None, nki=None, s=0, sk=0, fct=np.cos):
-    if ni == None:
+    if ni is None:
         ni = n
-    if nki == None:
+    if nki is None:
         nki = nk
     a = np.linspace(0, n - 1, ni)[:, np.newaxis] + s
     b = np.linspace(0, nk - 1, nki) + sk
@@ -367,17 +366,19 @@ def get_dst4(n, nk, ni=None, nki=None):
 
 def get_dct2(n, nk, ni=None, nki=None):
     dct = get_dct(n, nk, ni=ni, nki=nki, s=0.5, sk=0)
-   # dct = np.sqrt(2. / n) * np.cos(np.pi / n * (np.arange(n)[:, np.newaxis] + 0.5) * (np.arange(nk)))
+    # dct = np.sqrt(2. / n) * np.cos(np.pi / n * (np.arange(n)[:, np.newaxis] + 0.5) * (np.arange(nk)))
     dct[:, 0] = dct[:, 0] / np.sqrt(2)
-    
+
     return dct
+
 
 def get_dct3(n, nk, ni=None, nki=None):
     dct = get_dct(n, nk, ni=ni, nki=nki, s=0, sk=0.5)
     # dct = np.sqrt(2. / n) * np.cos(np.pi / n * (np.arange(n)[:, np.newaxis]) * (np.arange(nk) + 0.5))
     dct[0, :] = 1 / np.sqrt(n)
-    
+
     return dct
+
 
 def get_jn_fast(ll, ru):
     uniq, idx = np.unique(ll, return_inverse=True)
@@ -398,11 +399,13 @@ def get_lm_map(alm, ll, mm):
 
 def alm2map(alm, ll, mm, thetas, phis):
     ylm = get_ylm(ll, mm, phis, thetas)
-    return np.dot(alm[mm == 0], ylm[mm == 0, :]) + 2 * (np.dot(alm.real[mm != 0], ylm.real[mm != 0, :]) - np.dot(alm.imag[mm != 0], ylm.imag[mm != 0, :]))
+    a = np.dot(alm[mm == 0], ylm[mm == 0, :])
+    b = 2 * (np.dot(alm.real[mm != 0], ylm.real[mm != 0, :]) - np.dot(alm.imag[mm != 0], ylm.imag[mm != 0, :]))
+    return a + b
 
 
 def vlm2vis(vlm, ll, mm, uthetas, uphis, rus):
-    #PERF: update with faster verson of ylm, jn
+    # PERF: update with faster verson of ylm, jn
     ylm = get_ylm(ll, mm, uphis, uthetas)
     jn = get_jn(ll, rus)
     trm = Vlm2VisTransMatrix(ll, mm, ylm, jn)
@@ -440,17 +443,19 @@ def get_power_spectra(alm, ll, mm):
 
 def sph2cart(theta, phi, r=None):
     """Convert spherical coordinates to 3D cartesian
-    theta, phi, and r must be the same size and shape, if no r is provided then unit sphere coordinates are assumed (r=1)
+    theta, phi, and r must be the same size and shape, if no r is provided
+            then unit sphere coordinates are assumed (r=1)
     theta: colatitude/elevation angle, 0(north pole) =< theta =< pi (south pole)
     phi: azimuthial angle, 0 <= phi <= 2pi
     r: radius, 0 =< r < inf
     returns X, Y, Z arrays of the same shape as theta, phi, r
     see: http://mathworld.wolfram.com/SphericalCoordinates.html
     """
-    if r is None: r = np.ones_like(theta) #if no r, assume unit sphere radius
+    if r is None:
+        r = np.ones_like(theta)  # if no r, assume unit sphere radius
 
-    #elevation is pi/2 - theta
-    #azimuth is ranged (-pi, pi]
+    # elevation is pi/2 - theta
+    # azimuth is ranged (-pi, pi]
     X = r * np.cos((np.pi / 2.) - theta) * np.cos(phi - np.pi)
     Y = r * np.cos((np.pi / 2.) - theta) * np.sin(phi - np.pi)
     Z = r * np.sin((np.pi / 2.) - theta)
@@ -467,8 +472,8 @@ def cart2sph(X, Y, Z):
     see: http://mathworld.wolfram.com/SphericalCoordinates.html
     """
     r = np.sqrt(X**2. + Y**2. + Z**2.)
-    phi = np.arctan2(Y, X) + np.pi #convert azimuth (-pi, pi] to phi (0, 2pi]
-    theta = np.pi / 2. - np.arctan2(Z, np.sqrt(X**2. + Y**2.)) #convert elevation [pi/2, -pi/2] to theta [0, pi]
+    phi = np.arctan2(Y, X) + np.pi  # convert azimuth (-pi, pi] to phi (0, 2pi]
+    theta = np.pi / 2. - np.arctan2(Z, np.sqrt(X**2. + Y**2.))  # convert elevation [pi/2, -pi/2] to theta [0, pi]
 
     return r, phi, theta
 
@@ -486,13 +491,13 @@ def gaussian_beam(thetas, fwhm):
     # fwhm in radians, centered at NP
     sigma = nputils.gaussian_fwhm_to_sigma(fwhm)
 
-    gaussian_sph = np.exp(-(0.5  * (thetas / sigma) ** 2))
+    gaussian_sph = np.exp(-(0.5 * (thetas / sigma) ** 2))
 
     return gaussian_sph
 
 
 def sinc2_beam(thetas, fwhm, null_below_horizon=True):
-    # fwhm in radians, centered at NP    
+    # fwhm in radians, centered at NP
     hwhm = fwhm / 2.
     sinc_sph = (np.sin((thetas * 1.4 / hwhm)) / (thetas * 1.4 / hwhm)) ** 2
 
@@ -578,27 +583,26 @@ def polar_uv(rumin, rumax, nr, nphi, rnd_w=False, freqs_mhz=None, rnd_ru=False):
 def polar_nu_uv(bmin, bmax, nr, nphi, freqs_mhz, rnd_w=False, rnd_ru=False):
     lambs = const.c.value / (np.array(freqs_mhz) * 1e6)
 
-    ru, uphis, uthetas = polar_uv(bmin, bmax, nr, nphi, rnd_w=rnd_w, 
-                        freqs_mhz=freqs_mhz, rnd_ru=rnd_ru)
+    ru, uphis, uthetas = polar_uv(bmin, bmax, nr, nphi, rnd_w=rnd_w,
+                                  freqs_mhz=freqs_mhz, rnd_ru=rnd_ru)
 
     ru = [ru_s / lamb for ru_s, lamb in zip(ru, lambs)]
 
     return ru, uphis, uthetas
 
 
-def lofar_uv(freqs_mhz, dec_deg, hal, har, umin, umax, timeres, include_conj=True, 
-                min_max_is_baselines=False):
+def lofar_uv(freqs_mhz, dec_deg, hal, har, umin, umax, timeres, include_conj=True,
+             min_max_is_baselines=False):
     m2a = lambda m: np.squeeze(np.asarray(m))
 
     lambs = const.c.value / (np.array(freqs_mhz) * 1e6)
-    k = 2 * np.pi / lambs
 
     timev = np.arange(hal * 3600, har * 3600, timeres)
 
     statpos = np.loadtxt(LOFAR_STAT_POS)
     nstat = statpos.shape[0]
 
-    #All combinations of nant to generate baselines
+    # All combinations of nant to generate baselines
     stncom = itertools.combinations(np.arange(1, nstat), 2)
     b1, b2 = zip(*stncom)
 
@@ -612,27 +616,27 @@ def lofar_uv(freqs_mhz, dec_deg, hal, har, umin, umax, timeres, include_conj=Tru
         lamb_w = []
 
         for tt in timev:
-            HA  =  (tt / 3600.) * (15. / 180) * np.pi - (6.8689389 / 180) * np.pi
-            dec =  dec_deg * (np.pi / 180)
-            RM = np.matrix([[np.sin(HA), np.cos(HA), 0.0], 
+            HA = (tt / 3600.) * (15. / 180) * np.pi - (6.8689389 / 180) * np.pi
+            dec = dec_deg * (np.pi / 180)
+            RM = np.matrix([[np.sin(HA), np.cos(HA), 0.0],
                             [-np.sin(dec) * np.cos(HA), np.sin(dec) * np.sin(HA), np.cos(dec)],
                             [np.cos(dec) * np.cos(HA), - np.cos(dec) * np.sin(HA), np.sin(dec)]])
             statposuvw = np.dot(RM, statpos.T).T
-            bu = m2a(statposuvw[b1, 0] - statposuvw[b2, 0]) 
-            bv = m2a(statposuvw[b1, 1] - statposuvw[b2, 1]) 
-            bw = m2a(statposuvw[b1, 2] - statposuvw[b2, 2]) 
+            bu = m2a(statposuvw[b1, 0] - statposuvw[b2, 0])
+            bv = m2a(statposuvw[b1, 1] - statposuvw[b2, 1])
+            bw = m2a(statposuvw[b1, 2] - statposuvw[b2, 2])
 
             u = bu / lamb
             v = bv / lamb
             w = bw / lamb
 
             if min_max_is_baselines:
-                ru = np.sqrt(bu ** 2 + bv ** 2 + bw **2)
+                ru = np.sqrt(bu ** 2 + bv ** 2 + bw ** 2)
             else:
-                ru = np.sqrt(u ** 2 + v ** 2 + w **2)
-            
+                ru = np.sqrt(u ** 2 + v ** 2 + w ** 2)
+
             idx = (ru > umin) & (ru < umax)
-            
+
             lamb_u.extend(u[idx])
             lamb_v.extend(v[idx])
             lamb_w.extend(w[idx])
@@ -672,6 +676,7 @@ def get_hash_np_array(array):
     array.flags.writeable = writeable
 
     return h
+
 
 def get_hash_list_np_array(l):
     return hash(tuple([get_hash_np_array(array) for array in l]))
@@ -714,7 +719,7 @@ def test_uv_cov():
     # # for u, v in zip(uu, vv):
     # #     plt.scatter(u, v, c=colors.get())
     # for r, phi in zip(ru, uphis):
-    #     plt.scatter(r, phi, c=colors.get())        
+    #     plt.scatter(r, phi, c=colors.get())
     # plt.xlabel('U')
     # plt.ylabel('V')
     # plt.show()
@@ -751,7 +756,8 @@ def test_uv_cov():
         ru, uphi, utheta = cart2sph(u, v, w)
         # print ru
         # print len(np.unique(uphi)), len(np.unique(utheta))
-        print len(ru), min(ru), max(ru), len(np.unique(np.round(ru, decimals=2))), len(np.unique(np.round(uphi, decimals=12))), len(np.unique(np.round(utheta, decimals=12)))
+        print len(ru), min(ru), max(ru), len(np.unique(np.round(ru, decimals=2))), \
+            len(np.unique(np.round(uphi, decimals=12))), len(np.unique(np.round(utheta, decimals=12)))
         uphis.extend(uphi)
         uthetas.extend(utheta)
         plt.scatter(u, v, c=colors.get(), marker='+', s=1)
@@ -771,12 +777,12 @@ def row_func(row, cols):
 
 
 def test_cached_matrix():
-    
-    class TestCachedMatrix(CachedMatrix):
+
+    class TestCachedMatrix(AbstractCachedMatrix):
 
         def build_matrix(self, array):
             for i, row in enumerate(self.rows):
-                # print i, self.cols + 0.0001 * row 
+                # print i, self.cols + 0.0001 * row
                 array[i, :] = self.cols + 0.01 * row
 
     rows = np.arange(10)
@@ -792,7 +798,7 @@ def test_cached_matrix():
 
 
 def test_cached_mp_matrix():
-    
+
     # class TestCachedMatrix(CachedMatrixMultiProcess):
     #     pass
 
@@ -801,7 +807,8 @@ def test_cached_mp_matrix():
 
     rows = np.arange(10)
     cols = np.arange(10)
-    array = GenericCachedMatrixMultiProcess('test_mp', rows, cols, os.path.dirname(os.path.realpath(__file__)), row_func)
+    array = GenericCachedMatrixMultiProcess('test_mp', rows, cols,
+                                            os.path.dirname(os.path.realpath(__file__)), row_func)
 
     print array.array[5, :]
     print array.array[9, :]
@@ -813,7 +820,7 @@ def test_cached_ylm():
     # print ll
     # print mm
     ru, uphis, uthetas = polar_uv(50, 200, 20, 200, rnd_w=True)
-    
+
     ylm_m = YlmCachedMatrix(ll, mm, uphis[0], uthetas[0], os.path.dirname(os.path.realpath(__file__)))
 
     print "Building simple"
@@ -855,11 +862,11 @@ def test_jn():
     jn2 = get_jn(ll, ru[0])
     print jn2.shape
     print "Done:", time.time() - start
-    
+
     print "Building simple 2"
     start = time.time()
-    jn3 = get_jn2(ll, ru[0])
-    print jn3.shape
+    # jn3 = get_jn2(ll, ru[0])
+    # print jn3.shape
     print "Done:", time.time() - start
 
     print "Selecting"
@@ -868,7 +875,7 @@ def test_jn():
     print "Done:", time.time() - start
 
     print np.allclose(jn, jn2)
-    print np.allclose(jn2, jn3)
+    # print np.allclose(jn2, jn3)
 
 
 def test_lm_index():
@@ -897,7 +904,7 @@ def test_ylm_precision():
 def test_pairing():
     ll, mm = get_lm(40)
     print len(ll)
-    print len(np.unique(int_pairing(mm,ll)))
+    print len(np.unique(int_pairing(mm, ll)))
 
     a = np.random.rand(10000)
     b = np.random.rand(10000)

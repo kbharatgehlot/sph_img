@@ -1,9 +1,6 @@
 import os
 import sys
-import time
 import shutil
-
-import numpy as np
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -13,7 +10,7 @@ from libwise import scriptshelper as sh
 import sphimg
 
 
-USAGE = '''Run the ML spherical harmonics inversion 
+USAGE = '''Run the ML spherical harmonics inversion
 
 Usage: run_inversion.py name
 
@@ -21,12 +18,13 @@ Additional options:
 --config, -c: configuration file to be used instead of the default config.py
 '''
 
+
 def main():
     sh.init(0.1, USAGE)
 
     config_file = sh.get_opt_value('config', 'c', default='config.py')
     args = sh.get_args(min_nargs=1)
-    result_dir = args[0] #+ time.strftime('_%Y%m%d_%H%M%S')
+    result_dir = args[0]
 
     print "Result will be stored in:", result_dir
 
