@@ -494,7 +494,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
         for sel_block in [trm.m0_l_even, trm.lm_even, trm.lm_even]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
-                nk = int(np.round(n / config.dct_dl))
+                nk = int(np.ceil(n / float(config.dct_dl)))
                 dct_fct = get_dct_fct(m, 'real')
                 dct_blocks.append(dct_fct(n, nk))
                 dct_blocks_full.append(dct_fct(n, nk, nki=n))
@@ -507,7 +507,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
         for sel_block in [trm.m0_l_odd, trm.lm_odd, trm.lm_odd]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
-                nk = int(np.round(n / config.dct_dl))
+                nk = int(np.ceil(n / float(config.dct_dl)))
                 dct_fct = get_dct_fct(m, 'imag')
                 dct_blocks.append(dct_fct(n, nk))
                 dct_blocks_full.append(dct_fct(n, nk, nki=n))
