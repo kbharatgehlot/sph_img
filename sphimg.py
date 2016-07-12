@@ -14,7 +14,9 @@ from libwise import plotutils, nputils
 from libwise import scriptshelper as sh
 
 from scipy.sparse.linalg import cg
-from scipy.linalg import block_diag
+from scipy.sparse import block_diag, diags
+
+import astropy.constants as const
 
 import healpy as hp
 
@@ -83,7 +85,9 @@ def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, sa
         plt.close(fig)
 
 
-def plot_uv_cov(uu, vv, ww, title, savefile=None):
+def plot_uv_cov(uu, vv, ww, config, savefile=None):
+    title = 'Type: %s, Nvis: %s, Umin: %s, Umax: %s' % (config.uv_type, len(uu),
+                                                        config.uv_rumin, config.uv_rumax)
     fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 5))
     ax1.scatter(uu, vv)
     ax1.set_xlabel('U')
@@ -204,7 +208,7 @@ def plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, fisher_error,
 
 def plot_power_sepctra(ll, mm, alm, sel_ll, sel_mm, alm_rec, config, savefile=None):
     # TODO: check the normalization here!
-    l_sampled = np.arange(max(sel_ll) + 1)[np.bincount(sel_ll) > (config.out_mmax_full_sample + 1)]
+    l_sampled = np.arange(max(sel_ll) + 1)[np.bincount(sel_ll) > 0]
     idx = np.where(np.in1d(sel_ll, l_sampled))[0]
 
     ps_rec = util.get_power_spectra(alm_rec[idx], sel_ll[idx], sel_mm[idx])
@@ -307,11 +311,6 @@ def simulate_sky(config):
         full_map, alm = hp.synfast(config.cl, config.nside, alm=True, lmax=lmax, verbose=False)
     full_map = full_map + abs(full_map.min())
 
-    # full_map = np.zeros_like(full_map)
-    # full_map[hp.ang2pix(nside, 0.05, 0.05)] = 10000
-
-    # full_alm = hp.map2alm(full_map, lmax=lmax)
-
     thetas, phis = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
 
     if config.beam_type == 'gaussian':
@@ -345,10 +344,7 @@ def sample_input_alm(config, alms, ll, mm):
     theta_max = config.out_theta_max
 
     if config.inp_mmax_strip:
-        ll2 = ll_inp[mm_inp < np.clip(theta_max * ll_inp, 1, config.inp_lmax)].astype(int)
-        mm2 = mm_inp[mm_inp < np.clip(theta_max * ll_inp, 1, config.inp_lmax)].astype(int)
-        ll_inp = ll2
-        mm_inp = mm2
+        ll_inp, mm_inp = util.strip_mm(ll_inp, mm_inp, lambda l: np.sin(theta_max) * l)
 
     idx = util.get_lm_selection_index(ll, mm, ll_inp, mm_inp)
     alms = [alm[idx] for alm in alms]
@@ -358,67 +354,28 @@ def sample_input_alm(config, alms, ll, mm):
 
 def simulate_uv_cov(config):
     freqs_mhz = config.freqs_mhz
-    if config.uv_type == 'cart':
-        print 'Using cartesian uv coverage, fixed umax'
-        uu, vv, ww = util.cart_uv(config.cart_umax, config.cart_n,
-                                  rnd_w=config.cart_rnd_w, freqs_mhz=freqs_mhz)
-        ru, uphis, uthetas = [list(k) for k in zip(*map(util.cart2sph, uu, vv, ww))]
-        title = 'n=%s, umax=%s, random w:%s' % (config.cart_n, config.cart_umax, config.cart_rnd_w)
-
-    if config.uv_type == 'cart_nu':
-        print 'Using cartesian uv coverage, fixed bmax'
-        uu, vv, ww = util.cart_nu_uv(config.cart_bmax, config.cart_n,
-                                     rnd_w=config.cart_rnd_w)
-        ru, uphis, uthetas = [list(k) for k in zip(*map(util.cart2sph, uu, vv, ww))]
-        title = 'n=%s, bmax=%s, random w:%s' % (config.cart_n, config.cart_bmax, config.cart_rnd_w)
-
-    elif config.uv_type == 'polar':
+    lambs = const.c.value / (np.array(freqs_mhz) * 1e6)
+    bmin = config.uv_rumin * min(lambs)
+    bmax = config.uv_rumax * max(lambs)
+    freq = const.c.value * 1e-6
+    if config.uv_type == 'polar':
         print 'Using polar uv coverage, fixed umax'
-        ru, uphis, uthetas = util.polar_uv(config.polar_rumax, config.polar_rumin,
-                                           config.polar_nr, config.polar_nphi, rnd_w=config.polar_rnd_w,
-                                           freqs_mhz=freqs_mhz, rnd_ru=config.polar_rnd_ru)
-        uu, vv, ww = [list(k) for k in zip(*map(util.sph2cart, uthetas, uphis, ru))]
-
-        title = 'nr=%s, nphi=%s, rumax=%s, rumin=%s, random w=%s' % (config.polar_nr, config.polar_nphi,
-                                                                     config.polar_rumax,
-                                                                     config.polar_rumin,
-                                                                     config.cart_rnd_w)
-
-    elif config.uv_type == 'polar_nu':
-        print 'Using polar uv coverage, fixed bmax'
-        ru, uphis, uthetas = util.polar_nu_uv(config.polar_rbmax, config.polar_rbmin,
-                                              config.polar_nr, config.polar_nphi, freqs_mhz,
-                                              rnd_w=config.polar_rnd_w, rnd_ru=config.polar_rnd_ru)
-        uu, vv, ww = [list(k) for k in zip(*map(util.sph2cart, uthetas, uphis, ru))]
-
-        title = 'nr=%s, nphi=%s, rbmax=%s, rbmin=%s, random w=%s' % (config.polar_nr, config.polar_nphi,
-                                                                     config.polar_rbmax,
-                                                                     config.polar_rbmin,
-                                                                     config.cart_rnd_w)
+        rb, uphis, uthetas = util.polar_uv(bmin, bmax, config.polar_nr, config.polar_nphi,
+                                           rnd_w=config.polar_rnd_w,
+                                           freqs_mhz=[freq], rnd_ru=config.polar_rnd_ru)
 
     elif config.uv_type == 'lofar':
         print 'Using LOFAR uv coverage'
-        uu, vv, ww = util.lofar_uv(freqs_mhz, config.lofar_dec_deg,
-                                   config.lofar_hal, config.lofar_har, config.lofar_umin,
-                                   config.lofar_umax, config.lofar_timeres,
-                                   include_conj=config.lofar_include_conj,
-                                   min_max_is_baselines=config.lofar_min_max_is_baselines)
-        ru, uphis, uthetas = [list(k) for k in zip(*map(util.cart2sph, uu, vv, ww))]
-
-        if config.lofar_min_max_is_baselines:
-            title = 'Lofar with bmin=%s, bmax=%s' % (config.lofar_umin, config.lofar_umax)
-        else:
-            title = 'Lofar with umin=%s, umax=%s' % (config.lofar_umin, config.lofar_umax)
+        uu, vv, ww = util.lofar_uv([freq], config.lofar_dec_deg,
+                                   config.lofar_hal, config.lofar_har, bmin,
+                                   bmax, config.lofar_timeres,
+                                   include_conj=config.lofar_include_conj)
+        rb, uphis, uthetas = util.cart2sph(uu, vv, ww)
     else:
         print 'Configuration value uv_type invalid'
         sh.usage(True)
 
-    # round to similar tolerance:
-    for k in [uu, vv, ww, ru, uphis, uthetas]:
-        for i, s in enumerate(k):
-            k[i] = np.round(s, decimals=config.n_decimal_tol)
-
-    return uu, vv, ww, ru, uphis, uthetas, title
+    return rb[0], uphis[0], uthetas[0]
 
 
 def get_out_lm_sampling(ll, mm, config):
@@ -429,53 +386,24 @@ def get_out_lm_sampling(ll, mm, config):
     dl = config.out_dl
     theta_max = config.out_theta_max
 
-    if config.out_four_consective:
-        dl = 4 * dl
-        ll2a, mm2a = util.get_lm(lmin=lmin, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
-        ll2b, mm2b = util.get_lm(lmin=lmin + 1, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
-        ll2c, mm2c = util.get_lm(lmin=lmin + 2, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
-        ll2d, mm2d = util.get_lm(lmin=lmin + 3, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
-        ll, mm = util.merge_lm([ll2a, ll2b, ll2c, ll2d], [mm2a, mm2b, mm2c, mm2d])
-    else:
-        ll, mm = util.get_lm(lmin=lmin, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
-
-    if config.out_mmax_full_sample >= 0:
-        llm0, mmm0 = util.get_lm(lmin=lmin, lmax=lmax, mmax=config.out_mmax_full_sample)
-        ll, mm = util.merge_lm([ll, llm0], [mm, mmm0])
+    ll, mm = util.get_lm(lmin=lmin, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
 
     if config.out_mmax_strip:
-        ll2 = ll[mm < np.clip(theta_max * ll, 1, lmax)].astype(int)
-        mm2 = mm[mm < np.clip(theta_max * ll, 1, lmax)].astype(int)
-        ll = ll2
-        mm = mm2
+        ll, mm = util.strip_mm(ll, mm, lambda l: np.sin(theta_max) * l)
 
     return ll, mm
 
 
-def compute_visibilities(alm, ll, mm, uphis, uthetas, ru, global_ylm):
-    ylm = global_ylm.get(ll, mm, uphis, uthetas)
-    # jn = util.get_jn(ll, ru)
-    jn = util.JnMatrix(ll, ru).get(ll, ru)
-
-    trm = util.get_alm2vis_matrix(ll, mm, ylm, jn)
-
+def compute_visibilities(alm, ll, mm, uphis, uthetas, lamb, trm):
     alm_r, alm_i = trm.split(alm)
+    # t = time.time()
     V = np.dot(alm_r, trm.T_r) + 1j * np.dot(alm_i, trm.T_i)
+    # print time.time() - t
 
     return V
 
 
-def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simulate=False):
-    print "Building transformation matrix..."
-    ylm = global_ylm.get(ll, mm, uphis, uthetas)
-    # jn = util.get_jn(ll, ru)
-    jn = util.JnMatrix(ll, ru).get(ll, ru)
-
-    trm = util.get_alm2vis_matrix(ll, mm, ylm, jn)
-
-    # Free some memory
-    ylm = None
-    jn = None
+def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config, result_freq_dir):
 
     def get_dct_fct(m, t):
         if t == 'real' and m == 0:
@@ -492,6 +420,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
         dct_blocks = []
         dct_blocks_full = []
 
+        # t = time.time()
         for sel_block in [trm.m0_l_even, trm.lm_even, trm.lm_even]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
@@ -499,8 +428,11 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
                 dct_fct = get_dct_fct(m, 'real')
                 dct_blocks.append(dct_fct(n, nk))
                 dct_blocks_full.append(dct_fct(n, nk, nki=n))
-        dct_real = block_diag(*dct_blocks)
-        dct_real_full = block_diag(*dct_blocks_full)
+        # print time.time() - t
+        # t = time.time()
+        dct_real = block_diag(dct_blocks).tocsc()
+        dct_real_full = block_diag(dct_blocks_full).tocsc()
+        # print time.time() - t
 
         dct_blocks = []
         dct_blocks_full = []
@@ -512,12 +444,21 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
                 dct_fct = get_dct_fct(m, 'imag')
                 dct_blocks.append(dct_fct(n, nk))
                 dct_blocks_full.append(dct_fct(n, nk, nki=n))
-        dct_imag = block_diag(*dct_blocks)
-        dct_imag_full = block_diag(*dct_blocks_full)
+        dct_imag = block_diag(dct_blocks).tocsc()
+        dct_imag_full = block_diag(dct_blocks_full).tocsc()
 
         print "Computing dot products of T and DCT ..."
-        X_r = np.dot(trm.T_r.T, dct_real)
-        X_i = np.dot(trm.T_i.T, dct_imag)
+        # print dct_real.nnz, dct_real.shape
+        # t = time.time()
+        # # X_r = np.dot(trm.T_r.T, dct_real)
+        # X_r = (dct_real.T.dot(trm.T_r)).T
+        # print time.time() - t
+        # t = time.time()
+        # X_r = np.dot(trm.T_r.T, dct_real)
+        X_r = (dct_real.T.dot(trm.T_r)).T
+        # print time.time() - t
+        # X_i = np.dot(trm.T_i.T, dct_imag)
+        X_i = (dct_imag.T.dot(trm.T_i)).T
 
     else:
         X_r = trm.T_r.T
@@ -525,29 +466,33 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
 
     print '\nSize of transformation matrix: X_r: %s X_i: %s' % (X_r.shape, X_i.shape)
 
-    C_Dinv = np.diag([1 / (config.noiserms ** 2)] * len(Vobs))
+    t = time.time()
+    # C_Dinv = np.diag([1 / (config.noiserms ** 2)] * len(Vobs))
+    C_Dinv = diags([1 / (config.noiserms ** 2)] * len(Vobs))
 
-    print '\nComputing LHS and RHS matrix ...'
+    print '\nComputing LHS and RHS matrix ...',
     # PERF: quite some time is passed here as well, on both (about 6-s for a 14k by 2k matrix)
     # check C contious, etc...
-    lhs_r = np.dot(np.dot(X_r.T, C_Dinv), X_r) + np.eye(X_r.shape[1]) * config.reg_lambda
-    rhs_r = np.dot(np.dot(X_r.T, C_Dinv), Vobs.real)
+    X_r_dot_C_Dinv = C_Dinv.T.dot(X_r).T
+    lhs_r = np.dot(X_r_dot_C_Dinv, X_r) + np.eye(X_r.shape[1]) * config.reg_lambda
+    rhs_r = np.dot(X_r_dot_C_Dinv, Vobs.real)
+    print "Done in %.2f s" % (time.time() - t)
 
-    lhs_i = np.dot(np.dot(X_i.T, C_Dinv), X_i) + np.eye(X_i.shape[1]) * config.reg_lambda
-    rhs_i = np.dot(np.dot(X_i.T, C_Dinv), Vobs.imag)
+    X_i_dot_C_Dinv = C_Dinv.T.dot(X_i).T
+    lhs_i = np.dot(X_i_dot_C_Dinv, X_i) + np.eye(X_i.shape[1]) * config.reg_lambda
+    rhs_i = np.dot(X_i_dot_C_Dinv, Vobs.imag)
 
     print "Building fisher matrix ..."
     fisher_error_i = np.sqrt(np.diag(np.linalg.inv(lhs_i)))
     fisher_error_r = np.sqrt(np.diag(np.linalg.inv(lhs_r)))
 
     if config.use_dct:
-        fisher_error_r = np.dot(np.dot(fisher_error_r, dct_real.T), dct_real_full)
-        fisher_error_i = np.dot(np.dot(fisher_error_i, dct_imag.T), dct_imag_full)
+        # fisher_error_r = np.dot(np.dot(fisher_error_r, dct_real.T), dct_real_full)
+        fisher_error_r = dct_real_full.T.dot(dct_real.dot(fisher_error_r.T).T).T
+        # fisher_error_i = np.dot(np.dot(fisher_error_i, dct_imag.T), dct_imag_full)
+        fisher_error_i = dct_imag_full.T.dot(dct_imag.dot(fisher_error_i.T).T).T
 
     fisher_error = np.abs(trm.recombine(fisher_error_r, fisher_error_i))
-
-    if simulate:
-        return fisher_error
 
     print '\nStarting CG inversion for the real visibilities ...'
     start = time.time()
@@ -562,8 +507,8 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, ru, global_ylm, config, simul
     print 'Done in %.2f s. Status: %s, Residual: %s' % (time.time() - start, info, res)
 
     if config.use_dct:
-        alm_rec_r = np.dot(alm_rec_r, dct_real.T)
-        alm_rec_i = np.dot(alm_rec_i, dct_imag.T)
+        alm_rec_r = (dct_real.dot(alm_rec_r.T)).T  # np.dot(alm_rec_r, dct_real.T)
+        alm_rec_i = (dct_imag.dot(alm_rec_i.T)).T  # np.dot(alm_rec_i, dct_imag.T)
 
     alm_rec = trm.recombine(alm_rec_r, alm_rec_i)
     Vrec = np.dot(alm_rec_r, trm.T_r) + 1j * np.dot(alm_rec_i, trm.T_i)
@@ -637,7 +582,7 @@ def do_inversion(config, result_dir):
 
     inp_alms, inp_ll, inp_mm = sample_input_alm(config, full_alms, full_ll, full_mm)
 
-    uu, vv, ww, ru, uphis, uthetas, uv_params_str = simulate_uv_cov(config)
+    rb, uphis, uthetas = simulate_uv_cov(config)
 
     sel_ll, sel_mm = get_out_lm_sampling(inp_ll, inp_mm, config)
 
@@ -645,46 +590,71 @@ def do_inversion(config, result_dir):
     plot_sampling(inp_ll, inp_mm, sel_ll, sel_mm, os.path.join(result_dir, 'lm_sampling.pdf'))
 
     print '\nBuilding the global YLM matrix...'
-    all_phis = np.concatenate(uphis)
-    all_thetas = np.concatenate(uthetas)
-    uniq, idx_uniq = np.unique(util.real_pairing(all_thetas, all_phis), return_index=True)
+    global_inp_ylm = util.SplittedYlmMatrix(inp_ll, inp_mm, uphis, uthetas, rb,
+                                            config.cache_dir, keep_in_mem=config.keep_in_mem)
 
-    global_ylm = util.YlmCachedMatrix(inp_ll, inp_mm, all_phis[idx_uniq],
-                                      all_thetas[idx_uniq], config.cache_dir,
-                                      keep_in_mem=config.keep_in_mem)
+    if config.out_dl != config.inp_dl or config.out_dm != config.inp_dm \
+            or config.out_mmax != config.inp_mmax or config.out_mmax_strip != config.inp_mmax_strip:
+        global_sel_ylm = util.SplittedYlmMatrix(sel_ll, sel_mm, uphis, uthetas, rb,
+                                                config.cache_dir, keep_in_mem=config.keep_in_mem)
+    else:
+        global_sel_ylm = global_inp_ylm
 
     alms_rec = []
 
     for i, freq in enumerate(config.freqs_mhz):
         print "\nProcessing frequency %s MHz" % freq
 
+        lamb = const.c.value / (float(freq) * 1e6)
+        bmin = np.floor(lamb * config.uv_rumin)
+        bmax = np.ceil(lamb * config.uv_rumax)
+
         result_freq_dir = os.path.join(result_dir, 'freq_%s' % i)
         os.mkdir(result_freq_dir)
 
-        plot_uv_cov(uu[i], vv[i], ww[i], uv_params_str, os.path.join(result_freq_dir, 'uv_cov.pdf'))
+        t = time.time()
+        print "Building transformation matrix...",
+        inp_ylm = global_inp_ylm.get_chunk(bmin, bmax)
+        trm = util.get_alm2vis_matrix(inp_ll, inp_mm, inp_ylm, lamb)
+        print "Done in %.2f s" % (time.time() - t)
+
+        uthetas, uphis, ru = inp_ylm[0].thetas, inp_ylm[0].phis, inp_ylm[0].rb / lamb
+        uu, vv, ww = util.sph2cart(uthetas, uphis, ru)
+
+        plot_uv_cov(uu, vv, ww, config, os.path.join(result_freq_dir, 'uv_cov.pdf'))
 
         # computing the visibilities
         alm = inp_alms[i]
-        print "Building visibilities..."
-        V = compute_visibilities(alm, inp_ll, inp_mm, uphis[i], uthetas[i], ru[i], global_ylm)
+        print "\nBuilding visibilities..."
+        V = compute_visibilities(alm, inp_ll, inp_mm, uphis, uthetas, lamb, trm)
+        # break
 
         Vobs = V + config.noiserms * np.random.randn(len(V)) + 1j * config.noiserms * np.random.randn(len(V))
 
         # plotting the visibilities
-        plot_visibilities(uu[i], vv[i], ww[i], V, os.path.join(result_freq_dir, 'vis_from_vlm.pdf'))
+        plot_visibilities(uu, vv, ww, V, os.path.join(result_freq_dir, 'vis_from_vlm.pdf'))
 
         idx = util.get_lm_selection_index(inp_ll, inp_mm, sel_ll, sel_mm)
 
         sel_alm = alm[idx]
         sel_vlm = util.alm2vlm(sel_alm, sel_ll)
 
-        alm_rec, Vrec, fisher_error = alm_ml_inversion(sel_ll, sel_mm, Vobs, uphis[i], uthetas[i],
-                                                       ru[i], global_ylm, config)
+        if global_sel_ylm != global_inp_ylm:
+            t = time.time()
+            print "Building transformation matrix...",
+            sel_ylm = global_sel_ylm.get_chunk(bmin, bmax)
+            trm = util.get_alm2vis_matrix(sel_ll, sel_mm, inp_ylm, lamb)
+            print "Done in%.2f s" % (time.time() - t)
+
+            uthetas, uphis, ru = sel_ylm[0].thetas, sel_ylm[0].phis, sel_ylm[0].rb / lamb
+
+        alm_rec, Vrec, fisher_error = alm_ml_inversion(sel_ll, sel_mm, Vobs, uphis, uthetas,
+                                                       lamb, trm, config, result_freq_dir)
 
         alms_rec.append(alm_rec)
 
         save_alm(result_freq_dir, sel_ll, sel_mm, sel_alm, alm_rec, fisher_error)
-        save_visibilities(result_freq_dir, ru[i], uphis[i], uthetas[i], Vobs, Vrec)
+        save_visibilities(result_freq_dir, ru, uphis, uthetas, Vobs, Vrec)
 
         vlm_rec = util.alm2vlm(alm_rec, sel_ll)
 
@@ -705,14 +675,15 @@ def do_inversion(config, result_dir):
                       os.path.join(result_freq_dir, 'vlm_minus_vlm_rec.pdf'))
 
         # plot visibilities diff
-        plot_vis_diff(ru[i], V, Vobs, Vrec, os.path.join(result_freq_dir, 'vis_minus_vis_rec.pdf'))
+        plot_vis_diff(ru, V, Vobs, Vrec, os.path.join(result_freq_dir, 'vis_minus_vis_rec.pdf'))
 
         # plot output sky
         plot_sky_cart_diff(alm, alm_rec, inp_ll, inp_mm, sel_ll, sel_mm,
                            config.nside, theta_max=config.fwhm,
                            savefile=os.path.join(result_freq_dir, 'output_sky.pdf'))
 
-    global_ylm.close()
+    global_sel_ylm.close()
+    global_inp_ylm.close()
 
     if len(alms_rec) > 1:
         plot_mf_power_spectra(sel_ll, sel_mm, alms_rec, config.freqs_mhz, config,

@@ -36,50 +36,36 @@ cl_freq = (freqs_mhz / freqs_mhz[0]) ** -0.8
 beam_type = 'gaussian'
 fwhm = np.radians(10)
 
+out_theta_max = 1 * fwhm
+
 # =================================================================
 # UV coverage
 # =================================================================
 
-# uv_type can be one of: cart, cart_nu, polar, polar_nu, lofar
+# uv_type can be one of: polar or lofar
 # umax should be of the order of lmax / 2pi.
 uv_type = 'polar'
-
-# cart: Cartesian u,v grid, fixed
-cart_umax = 25
-cart_n = 50
-cart_rnd_w = True
-
-# cart_nu: Cartesian u,v grid with fixed baseline length, i.e variable umax.
-cart_bmax = 50
+uv_rumin = 2.
+uv_rumax = 20.
 
 # polar: Pseudo polar u,v grid. rumax should be of the order of lmax / 2pi.
-polar_rumin = 2
-polar_rumax = 20
+# nr is the numbers total of baselines. The actual numbers for each frequencies will vary
 polar_nr = 20.
 polar_nphi = 50.
 polar_rnd_w = True
 polar_rnd_ru = True
-
-# polar_nu: fixed baseline length, i.e variable umax.
-polar_bmax = 30
-polar_bmin = 4
 
 # umax should be of the order of lmax / 2pi.
 lofar_freq_mhz = 150
 lofar_dec_deg = 90
 lofar_hal = -6
 lofar_har = 6
-lofar_umin = 10
-lofar_umax = 40
-lofar_min_max_is_baselines = False  # If true, the above min and max are for the baselines
 lofar_timeres = 800.
 lofar_include_conj = True
 
 # =================================================================
 # sampled lm modes that will be recovered
 # =================================================================
-
-out_theta_max = 1 * fwhm
 
 out_lmax = lmax
 out_mmax = lmax
@@ -90,15 +76,8 @@ out_dm = 1
 # You might want to use out_dl = np.ceil(np.pi / out_theta_max)
 out_dl = 1
 
-# to catch the (-i)**l, you might want to sample with 4 consecutives coeff in l
-out_four_consective = False
-
 # strip mmax < sin(theta_max) * l
 out_mmax_strip = True
-
-# The first modes in m are usually the ones with the most power, because of the
-# effect of the beam, you might want to have full sampling for them
-out_mmax_full_sample = -1
 
 # =================================================================
 # Inversion parameters
@@ -116,7 +95,7 @@ cg_maxiter = 5000
 use_dct = True
 
 dct_fct_r_m0 = util.get_dct2
-dct_fct_i_m0 = util.get_dst2
+dct_fct_i_m0 = util.get_dct2
 dct_fct_r_m1 = util.get_dct2
 dct_fct_i_m1 = util.get_dct2
 

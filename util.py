@@ -40,24 +40,28 @@ class Vlm2VisTransMatrix(object):
 
         '''
 
-    def __init__(self, ll, mm, ylm, jn):
+    def __init__(self, ll, mm, ylm_set, jn_set):
         self.lm_size = len(ll)
 
-        self.lm_even = ((mm != 0) & np.logical_not(is_odd(ll))).astype(bool)
-        self.m0_l_even = ((mm == 0) & np.logical_not(is_odd(ll))).astype(bool)
-        self.ll_r = np.hstack((ll[self.m0_l_even], ll[self.lm_even], ll[self.lm_even]))
-        self.mm_r = np.hstack((mm[self.m0_l_even], mm[self.lm_even], mm[self.lm_even]))
-        self.T_r = np.vstack((ylm.real[self.m0_l_even, :] * jn[self.m0_l_even, :],
-                              2 * ylm.real[self.lm_even, :] * jn[self.lm_even, :],
-                              - 2 * ylm.imag[self.lm_even, :] * jn[self.lm_even, :]))
+        ylm_lm_even, ylm_m0_l_even, ylm_lm_odd, ylm_m0_l_odd = ylm_set
+        jn_lm_even, jn_m0_l_even, jn_lm_odd, jn_m0_l_odd = jn_set
 
-        self.lm_odd = ((mm != 0) & (is_odd(ll))).astype(bool)
-        self.m0_l_odd = ((mm == 0) & (is_odd(ll))).astype(bool)
-        self.ll_i = np.hstack((ll[self.m0_l_odd], ll[self.lm_odd], ll[self.lm_odd]))
-        self.mm_i = np.hstack((mm[self.m0_l_odd], mm[self.lm_odd], mm[self.lm_odd]))
-        self.T_i = np.vstack((ylm.real[self.m0_l_odd, :] * jn[self.m0_l_odd, :],
-                              2 * ylm.imag[self.lm_odd, :] * jn[self.lm_odd, :],
-                              2 * ylm.real[self.lm_odd, :] * jn[self.lm_odd, :]))
+        self.m0_l_even = get_lm_selection_index(ll, mm, ylm_m0_l_even.ll, ylm_m0_l_even.mm, keep_order=True)
+        self.m0_l_odd = get_lm_selection_index(ll, mm, ylm_m0_l_odd.ll, ylm_m0_l_odd.mm, keep_order=True)
+        self.lm_even = get_lm_selection_index(ll, mm, ylm_lm_even.ll, ylm_lm_even.mm, keep_order=True)
+        self.lm_odd = get_lm_selection_index(ll, mm, ylm_lm_odd.ll, ylm_lm_odd.mm, keep_order=True)
+
+        self.ll_r = np.hstack((ylm_m0_l_even.ll, ylm_lm_even.ll, ylm_lm_even.ll))
+        self.mm_r = np.hstack((ylm_m0_l_even.mm, ylm_lm_even.mm, ylm_lm_even.mm))
+        self.T_r = np.vstack((ylm_m0_l_even.data.real * jn_m0_l_even.get_full(),
+                              2 * ylm_lm_even.data.real * jn_lm_even.get_full(),
+                              - 2 * ylm_lm_even.data.imag * jn_lm_even.get_full()))
+
+        self.ll_i = np.hstack((ylm_m0_l_odd.ll, ylm_lm_odd.ll, ylm_lm_odd.ll))
+        self.mm_i = np.hstack((ylm_m0_l_odd.mm, ylm_lm_odd.mm, ylm_lm_odd.mm))
+        self.T_i = np.vstack((ylm_m0_l_odd.data.real * jn_m0_l_odd.get_full(),
+                              2 * ylm_lm_odd.data.imag * jn_lm_odd.get_full(),
+                              2 * ylm_lm_odd.data.real * jn_lm_odd.get_full()))
 
     def split(self, vlm):
         ''' Split the vlm to be used to recover Re(V) and Im(V) independently'''
@@ -68,8 +72,8 @@ class Vlm2VisTransMatrix(object):
 
     def recombine(self, vlm_r, vlm_i):
         ''' Recombine vlm_r and vlm_i to a full, complex vlm'''
-        split_r = (self.m0_l_even.sum(), self.m0_l_even.sum() + self.lm_even.sum())
-        split_i = (self.m0_l_odd.sum(), self.m0_l_odd.sum() + self.lm_odd.sum())
+        split_r = (len(self.m0_l_even), len(self.m0_l_even) + len(self.lm_even))
+        split_i = (len(self.m0_l_odd), len(self.m0_l_odd) + len(self.lm_odd))
 
         vlm = np.zeros(self.lm_size, dtype=np.complex)
         vlm[self.m0_l_even] = vlm_r[:split_r[0]]
@@ -95,31 +99,45 @@ class Alm2VisTransMatrix(object):
 
         '''
 
-    def __init__(self, ll, mm, ylm, jn):
+    def __init__(self, ll, mm, ylm_set, lamb):
         self.lm_size = len(ll)
 
-        self.lm_even = ((mm != 0) & np.logical_not(is_odd(ll))).astype(bool)
-        self.m0_l_even = ((mm == 0) & np.logical_not(is_odd(ll))).astype(bool)
-        self.ll_r = np.hstack((ll[self.m0_l_even], ll[self.lm_even], ll[self.lm_even]))
-        self.mm_r = np.hstack((mm[self.m0_l_even], mm[self.lm_even], mm[self.lm_even]))
+        ylm_lm_even, ylm_m0_l_even, ylm_lm_odd, ylm_m0_l_odd = ylm_set
 
-        p_m0 = ((-1) ** (ll[self.m0_l_even] / 2))[:, np.newaxis]
-        p_mp = ((-1) ** (ll[self.lm_even] / 2))[:, np.newaxis]
+        self.m0_l_even = get_lm_selection_index(ll, mm, ylm_m0_l_even.ll, ylm_m0_l_even.mm, keep_order=True)
+        self.m0_l_odd = get_lm_selection_index(ll, mm, ylm_m0_l_odd.ll, ylm_m0_l_odd.mm, keep_order=True)
+        self.lm_even = get_lm_selection_index(ll, mm, ylm_lm_even.ll, ylm_lm_even.mm, keep_order=True)
+        self.lm_odd = get_lm_selection_index(ll, mm, ylm_lm_odd.ll, ylm_lm_odd.mm, keep_order=True)
+
+        self.ll_r = np.hstack((ylm_m0_l_even.ll, ylm_lm_even.ll, ylm_lm_even.ll))
+        self.mm_r = np.hstack((ylm_m0_l_even.mm, ylm_lm_even.mm, ylm_lm_even.mm))
+
+        p_m0 = ((-1) ** (ylm_m0_l_even.ll / 2))[:, np.newaxis]
+        p_mp = ((-1) ** (ylm_lm_even.ll / 2))[:, np.newaxis]
         # PERF: loosing quite some time here. could be two time faster if ylm was c contigous
-        self.T_r = 4 * np.pi * np.vstack((p_m0 * ylm.real[self.m0_l_even, :] * jn[self.m0_l_even, :],
-                                          p_mp * 2 * ylm.real[self.lm_even, :] * jn[self.lm_even, :],
-                                          p_mp * -2 * ylm.imag[self.lm_even, :] * jn[self.lm_even, :]))
+        # t = time.time()
+        v1 = p_m0 * ylm_m0_l_even.data.real * get_jn_fast(ylm_m0_l_even.ll, ylm_m0_l_even.rb / lamb)
+        jn = get_jn_fast(ylm_lm_even.ll, ylm_lm_even.rb / lamb)
+        v2 = p_mp * 2 * ylm_lm_even.data.real * jn
+        v3 = p_mp * -2 * ylm_lm_even.data.imag * jn
+        self.T_r = 4 * np.pi * np.vstack((v1, v2, v3))
+        # print time.time() - t
 
-        self.lm_odd = ((mm != 0) & (is_odd(ll))).astype(bool)
-        self.m0_l_odd = ((mm == 0) & (is_odd(ll))).astype(bool)
-        self.ll_i = np.hstack((ll[self.m0_l_odd], ll[self.lm_odd], ll[self.lm_odd]))
-        self.mm_i = np.hstack((mm[self.m0_l_odd], mm[self.lm_odd], mm[self.lm_odd]))
+        self.ll_i = np.hstack((ylm_m0_l_odd.ll, ylm_lm_odd.ll, ylm_lm_odd.ll))
+        self.mm_i = np.hstack((ylm_m0_l_odd.mm, ylm_lm_odd.mm, ylm_lm_odd.mm))
 
-        p_m0 = ((-1) ** (ll[self.m0_l_odd] / 2))[:, np.newaxis]
-        p_mp = ((-1) ** (ll[self.lm_odd] / 2))[:, np.newaxis]
-        self.T_i = - 4 * np.pi * np.vstack((p_m0 * ylm.real[self.m0_l_odd, :] * jn[self.m0_l_odd, :],
-                                            p_mp * 2 * ylm.real[self.lm_odd, :] * jn[self.lm_odd, :],
-                                            p_mp * -2 * ylm.imag[self.lm_odd, :] * jn[self.lm_odd, :]))
+        p_m0 = ((-1) ** (ylm_m0_l_odd.ll / 2))[:, np.newaxis]
+        p_mp = ((-1) ** (ylm_lm_odd.ll / 2))[:, np.newaxis]
+        # t = time.time()
+        v1 = p_m0 * ylm_m0_l_odd.data.real * get_jn_fast(ylm_m0_l_odd.ll, ylm_m0_l_odd.rb / lamb)
+        jn = get_jn_fast(ylm_lm_odd.ll, ylm_lm_odd.rb / lamb)
+        v2 = p_mp * 2 * ylm_lm_odd.data.real * jn
+        v3 = p_mp * -2 * ylm_lm_odd.data.imag * jn
+        self.T_i = - 4 * np.pi * np.vstack((v1, v2, v3))
+        # print time.time() - t
+        # t = time.time()
+        # jn = get_jn_fast(ylm_lm_even.ll, ylm_lm_even.rb)
+        # print "Test:", time.time() - t
 
     def split(self, alm):
         ''' Split the alm to be used to recover Re(V) and Im(V) independently'''
@@ -130,8 +148,8 @@ class Alm2VisTransMatrix(object):
 
     def recombine(self, alm_r, alm_i):
         ''' Recombine alm_r and alm_i to a full, complex alm'''
-        split_r = (self.m0_l_even.sum(), self.m0_l_even.sum() + self.lm_even.sum())
-        split_i = (self.m0_l_odd.sum(), self.m0_l_odd.sum() + self.lm_odd.sum())
+        split_r = (len(self.m0_l_even), len(self.m0_l_even) + len(self.lm_even))
+        split_i = (len(self.m0_l_odd), len(self.m0_l_odd) + len(self.lm_odd))
 
         alm = np.zeros(self.lm_size, dtype=np.complex)
         alm[self.m0_l_even] = alm_r[:split_r[0]]
@@ -151,8 +169,8 @@ class AbstractMatrix(object):
         self.init_matrix()
 
     def init_matrix(self):
-        self.array = np.zeros((len(self.rows), len(self.cols)), dtype=self.dtype)
-        self.build_matrix(self.array)
+        self.data = np.zeros((len(self.rows), len(self.cols)), dtype=self.dtype)
+        self.build_matrix(self.data)
 
     def build_matrix(self, array):
         pass
@@ -164,19 +182,50 @@ class AbstractMatrix(object):
         cols_uniq, rov_col_idx = np.unique(cols, return_inverse=True)
         idx_col = np.where(np.in1d(self.cols, cols_uniq))[0]
 
-        # PERF: this time quite some time.
-        return self.array[idx_row, :][rev_row_idx, :][:, idx_col][:, rov_col_idx]
+        # PERF: this take quite some time.
+        return self.data[idx_row, :][rev_row_idx, :][:, idx_col][:, rov_col_idx]
 
 
-class AbstractCachedMatrix(AbstractMatrix):
+class AbstractIndexedMatrix(object):
 
-    def __init__(self, name, rows, cols, cache_dir, dtype=np.dtype(np.float64),
-                 force_build=False, keep_in_mem=False):
+    def __init__(self, rows, cols, idx_cols, dtype=np.dtype(np.float64)):
+        self.idx_cols = idx_cols
+        self.rows = rows
+        self.cols = cols
+        self.dtype = dtype
+        self.init_matrix()
+
+    def init_matrix(self):
+        self.data = np.zeros((len(self.rows), len(self.cols)), dtype=self.dtype)
+        self.build_matrix(self.data)
+
+    def build_matrix(self, array):
+        pass
+
+    def get_chunk(self, min_idx_col, max_idx_col):
+        max_idx_col = min(max_idx_col, max(self.idx_cols))
+        left_col = np.nonzero(self.idx_cols >= min_idx_col)[0][0]
+        right_col = np.nonzero(self.idx_cols <= max_idx_col)[0][-1]
+
+        idx_col = slice(left_col, right_col + 1)
+        return idx_col, self.data[:, idx_col]
+
+    def get(self, rows, cols):
+        idx_row = np.where(np.in1d(self.rows, rows))[0]
+        idx_col = np.where(np.in1d(self.cols, cols))[0]
+
+        # PERF: this take quite some time.
+        return self.data[idx_row, :][:, idx_col]
+
+
+class AbstractCachedMatrix(object):
+
+    def __init__(self, name, cache_dir, force_build=False, keep_in_mem=False, compress=None):
         self.cache_dir = cache_dir
         self.force_build = force_build
         self.name = name
         self.keep_in_mem = keep_in_mem
-        AbstractMatrix.__init__(self, rows, cols, dtype)
+        self.compress = compress
 
     def init_matrix(self):
         atom = tables.Atom.from_dtype(self.dtype)
@@ -189,40 +238,48 @@ class AbstractCachedMatrix(AbstractMatrix):
         cache_file = os.path.join(self.cache_dir, '%s_%s.cache' % (self.name, hid))
 
         if not os.path.exists(cache_file) or self.force_build:
-            print '\nBuilding matrix with size: %sx%s ...' % (len(self.rows), len(self.cols))
+            print '\nBuilding matrix with size: %sx%s ...' % (len(self.rows), len(self.cols)),
             start = time.time()
+
+            if self.compress is not None:
+                filters = tables.Filters(complib=self.compress, complevel=5)
+            else:
+                filters = None
 
             cache_file_temp = cache_file + '.temp'
 
             with tables.open_file(cache_file_temp, 'w') as h5_file:
-                array = h5_file.create_array('/', 'data', shape=(len(self.rows), len(self.cols)),
-                                             atom=atom)
+                array = h5_file.create_carray('/', 'data', shape=(len(self.rows), len(self.cols)),
+                                              atom=atom, filters=filters)
                 self.build_matrix(array)
 
             os.rename(cache_file_temp, cache_file)
 
             print 'Done in %.2f s' % (time.time() - start)
+        else:
+            print '\nUsing cached matrix from disk with size: %sx%s' % (len(self.rows), len(self.cols))
 
         self.h5_file = tables.open_file(cache_file, 'r')
 
         if self.keep_in_mem:
-            self.array = self.h5_file.root.data[:, :]
+            start = time.time()
+            print 'Mapping matrix to memory...',
+            self.data = self.h5_file.root.data[:, :]
+            print 'Done in %.2f s' % (time.time() - start)
         else:
-            self.array = self.h5_file.root.data
-
-    def build_matrix(self, array):
-        pass
+            self.data = self.h5_file.root.data
 
     def close(self):
         self.h5_file.close()
 
 
-class GenericCachedMatrixMultiProcess(AbstractCachedMatrix):
+class GenericCachedMatrixMultiProcess(AbstractCachedMatrix, AbstractMatrix):
 
     def __init__(self, name, rows, cols, cache_dir, row_func, dtype=np.dtype(np.float64),
                  force_build=False):
         self.row_func = row_func
-        AbstractCachedMatrix.__init__(self, name, rows, cols, cache_dir, dtype=dtype, force_build=force_build)
+        AbstractCachedMatrix.__init__(self, name, cache_dir, force_build=force_build)
+        AbstractMatrix.__init__(self, rows, cols, dtype)
 
     def build_matrix(self, array):
         pool = Pool(processes=NUM_POOL)
@@ -234,10 +291,10 @@ class GenericCachedMatrixMultiProcess(AbstractCachedMatrix):
         pool.close()
 
 
-class YlmCachedMatrix(AbstractCachedMatrix):
+class YlmCachedMatrix(AbstractCachedMatrix, AbstractMatrix):
 
     def __init__(self, ll, mm, phis, thetas, cache_dir, dtype=np.dtype(np.complex128),
-                 force_build=False, keep_in_mem=False):
+                 force_build=False, keep_in_mem=False, compress=None):
         rows, row_idx = np.unique(int_pairing(ll, mm), return_index=True)
         cols, col_idx = np.unique(real_pairing(phis, thetas), return_index=True)
         self.ll = ll[row_idx]
@@ -245,8 +302,9 @@ class YlmCachedMatrix(AbstractCachedMatrix):
         self.phis = phis[col_idx]
         self.thetas = thetas[col_idx]
 
-        AbstractCachedMatrix.__init__(self, 'ylm', rows, cols, cache_dir,
-                                      dtype=dtype, force_build=force_build, keep_in_mem=keep_in_mem)
+        AbstractCachedMatrix.__init__(self, 'ylm', cache_dir, force_build=force_build,
+                                      keep_in_mem=keep_in_mem, compress=compress)
+        AbstractMatrix.__init__(self, rows, cols, dtype)
 
     def build_matrix(self, array):
         pool = Pool(processes=NUM_POOL)
@@ -261,12 +319,101 @@ class YlmCachedMatrix(AbstractCachedMatrix):
     def get(self, ll, mm, phis, thetas):
         rows = int_pairing(ll, mm)
         cols = real_pairing(phis, thetas)
-        return AbstractCachedMatrix.get(self, rows, cols)
+        return AbstractMatrix.get(self, rows, cols)
+
+
+class YlmChunck(object):
+
+    def __init__(self, ll, mm, phis, thetas, rb, data):
+        self.ll = ll
+        self.mm = mm
+        self.phis = phis
+        self.thetas = thetas
+        self.rb = rb
+        self.data = data
+
+
+class YlmIndexedCachedMatrix(AbstractCachedMatrix, AbstractIndexedMatrix):
+
+    def __init__(self, ll, mm, phis, thetas, rb, cache_dir, dtype=np.dtype(np.complex128),
+                 force_build=False, keep_in_mem=False, compress=None):
+        sort_idx_cols = nputils.sort_index(rb)
+        self.ll = ll
+        self.mm = mm
+        self.phis = phis[sort_idx_cols]
+        self.thetas = thetas[sort_idx_cols]
+        self.rb = rb[sort_idx_cols]
+        rows = int_pairing(self.ll, self.mm)
+        cols = real_pairing(self.phis, self.thetas)
+
+        AbstractCachedMatrix.__init__(self, 'ylm', cache_dir, force_build=force_build,
+                                      keep_in_mem=keep_in_mem, compress=compress)
+        AbstractIndexedMatrix.__init__(self, rows, cols, self.rb, dtype=dtype)
+
+    def build_matrix(self, array):
+        pool = Pool(processes=NUM_POOL)
+
+        results_async = [pool.apply_async(Ylm.Ylm, (l, m, self.phis, self.thetas))
+                         for l, m in zip(self.ll, self.mm)]
+        for i, result in enumerate(results_async):
+            array[i, :] = result.get(timeout=2)
+
+        pool.close()
+
+    def get_chunk(self, bmin, bmax):
+        idx_col, data = AbstractIndexedMatrix.get_chunk(self, bmin, bmax)
+
+        return YlmChunck(self.ll, self.mm, self.phis[idx_col],
+                         self.thetas[idx_col], self.rb[idx_col], data)
+
+    def get(self, ll, mm, phis, thetas):
+        rows = int_pairing(ll, mm)
+        cols = real_pairing(phis, thetas)
+        return AbstractIndexedMatrix.get(self, rows, cols)
+
+
+class MatrixSet(list):
+
+    def get(self, rows, cols):
+        return MatrixSet([m.get(rows, cols) for m in self])
+
+    def get_chunk(self, min_idx_col, max_idx_col):
+        return MatrixSet([m.get_chunk(min_idx_col, max_idx_col) for m in self])
+
+
+class SplittedYlmMatrix(MatrixSet):
+
+    def __init__(self, ll, mm, phis, thetas, rb, cache_dir, dtype=np.dtype(np.complex128),
+                 force_build=False, keep_in_mem=False, compress=None):
+        lm_even = ((mm != 0) & np.logical_not(is_odd(ll))).astype(bool)
+        m0_l_even = ((mm == 0) & np.logical_not(is_odd(ll))).astype(bool)
+        lm_odd = ((mm != 0) & (is_odd(ll))).astype(bool)
+        m0_l_odd = ((mm == 0) & (is_odd(ll))).astype(bool)
+
+        matrices = []
+        for idx in [lm_even, m0_l_even, lm_odd, m0_l_odd]:
+            sel_ll = ll[idx]
+            sel_mm = mm[idx]
+            ylm = YlmIndexedCachedMatrix(sel_ll, sel_mm, phis, thetas, rb, cache_dir, dtype=dtype,
+                                         force_build=force_build, keep_in_mem=keep_in_mem, compress=compress)
+            matrices.append(ylm)
+
+        self.phis = matrices[0].phis
+        self.thetas = matrices[0].thetas
+        self.rb = matrices[0].rb
+
+        MatrixSet.__init__(self, matrices)
+
+    def close(self):
+        for m in self:
+            m.close()
 
 
 class JnMatrix(AbstractMatrix):
 
     def __init__(self, ll, ru):
+        self.full_ll = ll
+        self.full_ru = ru
         self.ll = np.unique(ll)
         self.ru = np.unique(ru)
         AbstractMatrix.__init__(self, self.ll, self.ru, dtype=np.dtype(np.float64))
@@ -280,6 +427,19 @@ class JnMatrix(AbstractMatrix):
             array[:, i] = result.get(timeout=2)[0][self.ll]
 
         pool.close()
+
+    def get_full(self):
+        return self.get(self.full_ll, self.full_ru)
+
+
+class SplittedJnMatrix(MatrixSet):
+
+    def __init__(self, ylm_set, lamb):
+        matrices = []
+        for ylm in ylm_set:
+            jn = JnMatrix(ylm.ll, ylm.rb / lamb)
+            matrices.append(jn)
+        MatrixSet.__init__(self, matrices)
 
 
 def get_lm(lmax, lmin=0, dl=1, mmin=0, mmax=-1, dm=1, neg_m=False):
@@ -307,17 +467,25 @@ def strip_mm(ll, mm, mmax_fct):
     ''' Strip the mm according to the mmax_fct.
 
         Ex: ll, mm = strip_mm(ll, mm, lambda l: 0.5 * l) '''
-    ll2 = ll[mm <= [mmax_fct(l) for l in ll]].astype(int)
-    mm2 = mm[mm <= [mmax_fct(l) for l in ll]].astype(int)
+    ll2 = ll[mm < np.clip(mmax_fct(ll), 1, max(ll))].astype(int)
+    mm2 = mm[mm < np.clip(mmax_fct(ll), 1, max(ll))].astype(int)
 
     return ll2, mm2
 
 
-def get_lm_selection_index(ll1, mm1, ll2, mm2):
+def get_lm_selection_index(ll1, mm1, ll2, mm2, keep_order=False):
     ''' Return the index of all modes (ll2, mm2) into (ll, mm).'''
     x = np.array([l + 1 / (m + 1.) for l, m in zip(ll1, mm1)])
-    y = np.unique(np.array([l + 1 / (m + 1.) for l, m in zip(ll2, mm2)]))
-    idx = np.where(np.in1d(x, y, assume_unique=False))[0]
+
+    if keep_order:
+        y = np.array([l + 1 / (m + 1.) for l, m in zip(ll2, mm2)])
+        idx_x = np.argsort(x)
+        sorted_x = x[idx_x]
+        idx_y = np.searchsorted(sorted_x, y)
+        idx = idx_x[idx_y]
+    else:
+        y = np.unique(np.array([l + 1 / (m + 1.) for l, m in zip(ll2, mm2)]))
+        idx = np.where(np.in1d(x, y, assume_unique=False))[0]
 
     return idx
 
@@ -650,7 +818,7 @@ def lofar_uv(freqs_mhz, dec_deg, hal, har, umin, umax, timeres, include_conj=Tru
         vv.append(np.array(lamb_v))
         ww.append(np.array(lamb_w))
 
-    return uu, vv, ww
+    return np.array(uu), np.array(vv), np.array(ww)
 
 
 def vlm2alm(vlm, ll):
@@ -745,9 +913,9 @@ def test_uv_cov():
     # plt.ylabel('uphis')
     # plt.show()
 
-    freqs = np.arange(110, 170, 5)
+    freqs = np.arange(110, 130, 5)
     # freqs = [150.]
-    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 0, 250, 200, min_max_is_baselines=False)
+    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 0, 60, 5000, min_max_is_baselines=False)
     plt.figure()
     colors = plotutils.ColorSelector()
     uphis = []
@@ -755,19 +923,21 @@ def test_uv_cov():
     for u, v, w in zip(uu, vv, ww):
         ru, uphi, utheta = cart2sph(u, v, w)
         # print ru
-        # print len(np.unique(uphi)), len(np.unique(utheta))
+        # print np.unique(uphi), np.unique(utheta)
         print len(ru), min(ru), max(ru), len(np.unique(np.round(ru, decimals=2))), \
             len(np.unique(np.round(uphi, decimals=12))), len(np.unique(np.round(utheta, decimals=12)))
-        uphis.extend(uphi)
-        uthetas.extend(utheta)
-        plt.scatter(u, v, c=colors.get(), marker='+', s=1)
-        # plt.scatter(ru, uphi, c=colors.get())
+        uphis.append(np.round(uphi, decimals=12))
+        uthetas.append(np.round(utheta, decimals=12))
+        plt.scatter(ru, uphi, c=colors.get(), marker='+', s=5)
+        # plt.scatter(utheta, uphi, c=colors.get(), marker='+', )
+    # print np.allclose(np.unique(uphis[0]), np.unique(uphis[1]))
+    # print np.allclose(np.unique(uthetas[0]), np.unique(uthetas[1]))
     # print len(np.unique(uphis)), len(np.unique(uthetas))
     # print len(np.unique(zip(np.round(uphis, decimals=14), np.round(uthetas, decimals=14))))
     # print len(np.unique(np.round(uphis, decimals=14))), len(np.unique(np.round(uthetas, decimals=14)))
-    plt.figure()
-    plt.plot(np.unique(uphis), np.unique(uphis), ls='', marker='o')
-    plt.plot(sorted(uphi), sorted(uphi), ls='', marker='+')
+    # plt.figure()
+    # plt.plot(np.unique(uphis), np.unique(uphis), ls='', marker='o')
+    # plt.plot(sorted(uphi), sorted(uphi), ls='', marker='+')
     plt.show()
 
 
@@ -848,6 +1018,70 @@ def test_cached_ylm():
     ylm_m.close()
 
 
+def test_index_matrix():
+
+    class TestMatrix(AbstractIndexedMatrix):
+
+        def build_matrix(self, array):
+            for i, row in enumerate(self.rows):
+                # print i, self.cols + 0.0001 * row
+                array[i, :] = self.cols + 10000 * row
+
+    rows = np.arange(5000)
+    cols = np.arange(5000)
+    array = TestMatrix(rows, cols, rows, cols, dtype=np.dtype(np.int64))
+    t = time.time()
+    print array.array[5, :]
+    print time.time() - t
+    t = time.time()
+    print array.array[9, :]
+    print time.time() - t
+    t = time.time()
+    print array.get(rows, cols)
+    print time.time() - t
+    t = time.time()
+    print array.get_chunk(5, 900, 3, 600)
+    print time.time() - t
+
+
+def test_ylm_index_matrix():
+    ll, mm = get_lm(200)
+    # print ll
+    # print mm
+    ru, uphis, uthetas = polar_uv(50, 200, 20, 200, rnd_w=True)
+
+    ylm_m = YlmIndexedCachedMatrix(ll, mm, uphis[0], uthetas[0], ll, ru[0],
+                                   os.path.dirname(os.path.realpath(__file__)), keep_in_mem=True)
+    ll = ylm_m.ll
+    mm = ylm_m.mm
+    uphis = ylm_m.phis
+    uthetas = ylm_m.thetas
+    ru = ru[0]
+
+    print "Selecting chunk"
+    start = time.time()
+    idx_l, idx_r, ylm = ylm_m.get_chunk(10, 180, 40, 180)
+    print "Done:", time.time() - start, ylm.shape
+
+    print "Selecting"
+    start = time.time()
+    # idx_l = (ll >= 10) & (ll <= 20)
+    # idx_r = (ru >= 70) & (ru <= 90)
+    ylm2 = ylm_m.get(ll[idx_l], mm[idx_l], uphis[idx_r], uthetas[idx_r])
+    print "Done:", time.time() - start, ylm2.shape
+
+    print np.allclose(ylm, ylm2)
+
+    # print "Building simple"
+    # start = time.time()
+    # ylm3 = get_ylm(ll[idx_l], mm[idx_l], uphis[idx_r], uthetas[idx_r])
+    # print "Done:", time.time() - start
+
+    # print np.allclose(ylm, ylm3)
+
+    ylm_m.close()
+
+
 def test_jn():
     ll, mm = get_lm(200, dl=2)
     ru, uphis, uthetas = polar_uv(50, 200, 20, 200, rnd_w=True)
@@ -911,12 +1145,71 @@ def test_pairing():
 
     print len(np.unique(real_pairing(a, b)))
 
+
+def test_ylm_compress():
+    lmin = 1
+    lmax = 100
+    n = 100
+    ll, mm = get_lm(lmin=lmin, lmax=lmax, mmax=lmax)
+    uphi = np.linspace(0, 6, n)
+    utheta = np.linspace(0.2, np.pi - 0.2, n)
+    ur = np.linspace(1.2 * lmin / 6.28, 1 * lmax / 6.28, n)
+    uphis, uthetas, urs = np.meshgrid(uphi, utheta, ur)
+    urs = urs.flatten()
+    uphis = uphis.flatten()
+    uthetas = uthetas.flatten()
+
+    t = time.time()
+    ylm = YlmCachedMatrix(ll, mm, uphis, uthetas, 'cache', compress=None, force_build=True)
+    print time.time() - t
+
+    t = time.time()
+    ylm.get(ll[mm == 5], mm[mm == 5], uphis, uthetas)
+    print time.time() - t
+
+
+def test_ylm_set():
+    ll, mm = get_lm(100)
+    ru, uphis, uthetas = polar_uv(50, 200, 20, 100, rnd_w=True)
+    ru, uphis, uthetas = ru[0], uphis[0], uthetas[0]
+
+    ylm_set = SplittedYlmMatrix(ll, mm, uphis, uthetas, ru,
+                                os.path.dirname(os.path.realpath(__file__)), keep_in_mem=True)
+
+    jn_set = SplittedJnMatrix(ylm_set, ru)
+
+    lm_even = ((mm != 0) & np.logical_not(is_odd(ll))).astype(bool)
+    m0_l_even = ((mm == 0) & np.logical_not(is_odd(ll))).astype(bool)
+    lm_odd = ((mm != 0) & (is_odd(ll))).astype(bool)
+    m0_l_odd = ((mm == 0) & (is_odd(ll))).astype(bool)
+
+    for idx, ylm, jn in zip([lm_even, m0_l_even, lm_odd, m0_l_odd], ylm_set, jn_set):
+        ylm1 = YlmCachedMatrix(ll[idx], mm[idx], uphis, uthetas,
+                               os.path.dirname(os.path.realpath(__file__)), keep_in_mem=True)
+
+        jn1 = JnMatrix(ll[idx], ru)
+        jn2 = get_jn_fast(ylm.ll, ylm.rb)
+
+        print np.allclose(ylm.data, ylm1.get(ylm.ll, ylm.mm, ylm.phis, ylm.thetas))
+        print np.allclose(jn.data, jn1.get(jn.ll, jn.ru))
+        print np.allclose(jn.full_ll, ylm.ll)
+        print np.allclose(jn.full_ru, ylm.rb)
+        print np.allclose(jn2, jn1.get(jn.full_ll, jn.full_ru))
+
+        ylm1.close()
+
+    ylm_set.close()
+
 if __name__ == '__main__':
     # test_cached_matrix()
     # test_cached_mp_matrix()
     # test_cached_ylm()
-    test_uv_cov()
+    # test_uv_cov()
     # test_lm_index()
     # test_ylm_precision()
     # test_pairing()
     # test_jn()
+    # test_ylm_compress()
+    # test_index_matrix()
+    # test_ylm_index_matrix()
+    test_ylm_set()
