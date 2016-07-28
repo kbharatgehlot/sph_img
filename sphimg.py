@@ -1,8 +1,10 @@
 import os
+import sys
 import imp
 import glob
 import time
 import warnings
+import multiprocessing
 
 import numpy as np
 
@@ -48,6 +50,9 @@ def plot_sky_cart(alm, ll, mm, nside, title='', theta_max=0.35, savefile=None):
 
 
 def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, savefile=None):
+    print "sky diff start"
+    sys.stdout.flush()
+
     cbs = plotutils.ColorbarSetting(plotutils.ColorbarInnerPosition(location=2, height="80%", pad=1))
     latra = np.degrees(theta_max)
 
@@ -85,14 +90,20 @@ def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, sa
                     ha='right', va='center', transform=lastax.transAxes)
 
     if savefile is not None:
+        print "sky diff save"
+        sys.stdout.flush()
         fig.set_size_inches(14, 5)
         fig.savefig(savefile)
         plt.close(fig)
 
+    print "sky diff done"
+    sys.stdout.flush()
 
-def plot_uv_cov(uu, vv, ww, config, savefile=None):
-    title = 'Type: %s, Nvis: %s, Umin: %s, Umax: %s' % (config.uv_type, len(uu),
-                                                        config.uv_rumin, config.uv_rumax)
+
+def plot_uv_cov(uu, vv, ww, config, title, savefile=None):
+    print "uv cov start"
+    sys.stdout.flush()
+
     fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 5))
     ax1.scatter(uu, vv)
     ax1.set_xlabel('U')
@@ -105,8 +116,12 @@ def plot_uv_cov(uu, vv, ww, config, savefile=None):
     fig.suptitle(title)
 
     if savefile is not None:
+        print "uv cov print"
+        sys.stdout.flush()
         fig.savefig(savefile)
         plt.close(fig)
+    print "uv cov done"
+    sys.stdout.flush()
 
 
 def plot_visibilities(uu, vv, ww, V, savefile=None):
@@ -211,7 +226,7 @@ def plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, cov_error,
         plt.close(fig)
 
 
-def plot_power_sepctra(ll, mm, alm, sel_ll, sel_mm, alm_rec, config, savefile=None):
+def plot_power_sepctra(ll, mm, alm, sel_ll, sel_mm, alm_rec, savefile=None):
     # TODO: check the normalization here!
     l_sampled = np.arange(max(sel_ll) + 1)[np.bincount(sel_ll) > 0]
     idx = np.where(np.in1d(sel_ll, l_sampled))[0]
@@ -716,6 +731,7 @@ def do_inversion(config, result_dir):
     alms_rec = []
 
     for i, freq in enumerate(config.freqs_mhz):
+        plot_pool = multiprocessing.Pool()
         print "\nProcessing frequency %s MHz" % freq
 
         lamb = const.c.value / (float(freq) * 1e6)
@@ -728,13 +744,15 @@ def do_inversion(config, result_dir):
         t = time.time()
         print "Building transformation matrix...",
         inp_ylm = global_inp_ylm.get_chunk(bmin, bmax)
-        trm = util.get_alm2vis_matrix(inp_ll, inp_mm, inp_ylm, lamb)
+        trm = util.get_alm2vis_matrix(inp_ll, inp_mm, inp_ylm, lamb, order='F')
         print "Done in %.2f s" % (time.time() - t)
 
         uthetas, uphis, ru = inp_ylm[0].thetas, inp_ylm[0].phis, inp_ylm[0].rb / lamb
         uu, vv, ww = util.sph2cart(uthetas, uphis, ru)
 
-        plot_uv_cov(uu, vv, ww, config, os.path.join(result_freq_dir, 'uv_cov.pdf'))
+        title = 'Type: %s, Nvis: %s, Umin: %s, Umax: %s' % (config.uv_type, len(uu),
+                                                            config.uv_rumin, config.uv_rumax)
+        plot_pool.apply_async(plot_uv_cov, (uu, vv, ww, title, os.path.join(result_freq_dir, 'uv_cov.pdf')))
 
         # computing the visibilities
         alm = inp_alms[i]
@@ -746,7 +764,7 @@ def do_inversion(config, result_dir):
         Vobs = V + config.noiserms * np.random.randn(len(V)) + 1j * config.noiserms * np.random.randn(len(V))
 
         # plotting the visibilities
-        plot_visibilities(uu, vv, ww, V, os.path.join(result_freq_dir, 'vis_from_vlm.pdf'))
+        plot_pool.apply_async(plot_visibilities, (uu, vv, ww, V, os.path.join(result_freq_dir, 'vis_from_vlm.pdf')))
 
         idx = util.get_lm_selection_index(inp_ll, inp_mm, sel_ll, sel_mm)
 
@@ -757,8 +775,8 @@ def do_inversion(config, result_dir):
             t = time.time()
             print "Building transformation matrix...",
             sel_ylm = global_sel_ylm.get_chunk(bmin, bmax)
-            trm = util.get_alm2vis_matrix(sel_ll, sel_mm, inp_ylm, lamb)
-            print "Done in%.2f s" % (time.time() - t)
+            trm = util.get_alm2vis_matrix(sel_ll, sel_mm, inp_ylm, lamb, order='F')
+            print "Done in %.2f s" % (time.time() - t)
 
             uthetas, uphis, ru = sel_ylm[0].thetas, sel_ylm[0].phis, sel_ylm[0].rb / lamb
 
@@ -774,27 +792,34 @@ def do_inversion(config, result_dir):
 
         print "Plotting result"
         # plot vlm vs vlm_rec
-        plot_vlm_vs_vlm_rec(sel_ll, sel_mm, sel_vlm, vlm_rec, os.path.join(result_freq_dir, 'vlm_vs_vlm_rec.pdf'))
+        plot_pool.apply_async(plot_vlm_vs_vlm_rec, (sel_ll, sel_mm, sel_vlm, vlm_rec,
+                                                    os.path.join(result_freq_dir, 'vlm_vs_vlm_rec.pdf')))
 
         # plot vlm vs vlm_rec in a map
-        plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, 4 * np.pi * cov_error,
-                                os.path.join(result_freq_dir, 'lm_maps_imag.pdf'))
+        plot_pool.apply_async(plot_vlm_vs_vlm_rec_map, (sel_ll, sel_mm, sel_vlm, vlm_rec, 4 * np.pi * cov_error,
+                                                        os.path.join(result_freq_dir, 'lm_maps_imag.pdf')))
 
         # plot power spectra
-        plot_power_sepctra(inp_ll, inp_mm, alm, sel_ll, sel_mm, alm_rec, config,
-                           os.path.join(result_freq_dir, 'angular_power_spectra.pdf'))
+        plot_pool.apply_async(plot_power_sepctra, (inp_ll, inp_mm, alm, sel_ll, sel_mm, alm_rec,
+                                                   os.path.join(result_freq_dir, 'angular_power_spectra.pdf')))
 
         # plot vlm diff
-        plot_vlm_diff(sel_ll, sel_mm, sel_vlm, vlm_rec,
-                      os.path.join(result_freq_dir, 'vlm_minus_vlm_rec.pdf'))
+        plot_pool.apply_async(plot_vlm_diff, (sel_ll, sel_mm, sel_vlm, vlm_rec,
+                                              os.path.join(result_freq_dir, 'vlm_minus_vlm_rec.pdf')))
 
         # plot visibilities diff
-        plot_vis_diff(ru, V, Vobs, Vrec, os.path.join(result_freq_dir, 'vis_minus_vis_rec.pdf'))
+        plot_pool.apply_async(plot_vis_diff, (ru, V, Vobs, Vrec, os.path.join(result_freq_dir,
+                                                                              'vis_minus_vis_rec.pdf')))
 
         # plot output sky
-        plot_sky_cart_diff(alm, alm_rec, inp_ll, inp_mm, sel_ll, sel_mm,
-                           config.nside, theta_max=config.fwhm,
-                           savefile=os.path.join(result_freq_dir, 'output_sky.pdf'))
+        plot_pool.apply_async(plot_sky_cart_diff, (alm, alm_rec, inp_ll, inp_mm, sel_ll, sel_mm, config.nside),
+                              dict(theta_max=config.fwhm, savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
+
+        t = time.time()
+        print "Waiting for plotting to finish...",
+        plot_pool.close()
+        plot_pool.join()
+        print "Done in %.2f s" % (time.time() - t)
 
     global_sel_ylm.close()
     global_inp_ylm.close()

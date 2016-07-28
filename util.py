@@ -104,7 +104,7 @@ class Alm2VisTransMatrix(object):
 
         '''
 
-    def __init__(self, ll, mm, ylm_set, lamb):
+    def __init__(self, ll, mm, ylm_set, lamb, order='C'):
         self.lm_size = len(ll)
 
         ylm_lm_even, ylm_m0_l_even, ylm_lm_odd, ylm_m0_l_odd = ylm_set
@@ -121,7 +121,7 @@ class Alm2VisTransMatrix(object):
         p_mp = ((-1) ** (ylm_lm_even.ll / 2))[:, np.newaxis]
         # PERF: loosing quite some time here.
         t = time.time()
-        self.T_r = np.zeros((len(self.ll_r), ylm_m0_l_even.data.shape[1]))
+        self.T_r = np.zeros((len(self.ll_r), ylm_m0_l_even.data.shape[1]), order=order)
         v = 4 * np.pi * p_m0 * ylm_m0_l_even.data.real * get_jn_fast_weave(ylm_m0_l_even.ll, ylm_m0_l_even.rb / lamb)
         i1 = len(v)
         self.T_r[:i1, :] = v
@@ -147,7 +147,7 @@ class Alm2VisTransMatrix(object):
         p_mp = ((-1) ** (ylm_lm_odd.ll / 2))[:, np.newaxis]
 
         t = time.time()
-        self.T_i = np.zeros((len(self.ll_i), ylm_m0_l_even.data.shape[1]))
+        self.T_i = np.zeros((len(self.ll_i), ylm_m0_l_even.data.shape[1]), order=order)
 
         v = - 4 * np.pi * p_m0 * ylm_m0_l_odd.data.real * get_jn_fast_weave(ylm_m0_l_odd.ll, ylm_m0_l_odd.rb / lamb)
         i1 = len(v)
@@ -940,8 +940,8 @@ def get_vlm2vis_matrix(ll, mm, ylm, jn):
     return Vlm2VisTransMatrix(ll, mm, ylm, jn)
 
 
-def get_alm2vis_matrix(ll, mm, ylm, jn):
-    return Alm2VisTransMatrix(ll, mm, ylm, jn)
+def get_alm2vis_matrix(ll, mm, ylm, jn, order='C'):
+    return Alm2VisTransMatrix(ll, mm, ylm, jn, order=order)
 
 
 def get_hash_np_array(array):

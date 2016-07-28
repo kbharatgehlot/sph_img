@@ -68,8 +68,7 @@ def pmultiply(X not None, np.ndarray[ndim=2, mode='fortran', dtype=np.float64_t]
     if X.shape[1] != W.shape[0]:
         raise ValueError('matrices are not aligned')
 
-    if not scipy.sparse.isspmatrix_csc(X):
-        raise ValueError('X should be csc sparse')    
+    X = X.tocsc() 
     
     cdef int i
     cdef cs csX
