@@ -318,7 +318,7 @@ class GenericCachedMatrixMultiProcess(AbstractCachedMatrix, AbstractMatrix):
 
         results_async = [pool.apply_async(self.row_func, (row, self.cols)) for row in self.rows]
         for i, result in enumerate(results_async):
-            array[i, :] = result.get(timeout=2)
+            array[i, :] = result.get()
 
         pool.close()
 
@@ -344,7 +344,7 @@ class YlmCachedMatrix(AbstractCachedMatrix, AbstractMatrix):
         results_async = [pool.apply_async(Ylm.Ylm, (l, m, self.phis, self.thetas))
                          for l, m in zip(self.ll, self.mm)]
         for i, result in enumerate(results_async):
-            array[i, :] = result.get(timeout=2)
+            array[i, :] = result.get()
 
         pool.close()
 
@@ -388,7 +388,7 @@ class YlmIndexedCachedMatrix(AbstractCachedMatrix, AbstractIndexedMatrix):
         results_async = [pool.apply_async(Ylm.Ylm, (l, m, self.phis, self.thetas))
                          for l, m in zip(self.ll, self.mm)]
         for i, result in enumerate(results_async):
-            array[i, :] = result.get(timeout=2)
+            array[i, :] = result.get()
 
         pool.close()
 
@@ -456,7 +456,7 @@ class JnMatrix(AbstractMatrix):
         results_async = [pool.apply_async(sph_jn, (max(self.ll), 2 * np.pi * r)) for r in self.ru]
 
         for i, result in enumerate(results_async):
-            array[:, i] = result.get(timeout=2)[0][self.ll]
+            array[:, i] = result.get()[0][self.ll]
 
         pool.close()
 
