@@ -17,6 +17,7 @@ from scipy.sparse.linalg import cg
 from scipy.sparse import block_diag, diags
 
 import astropy.constants as const
+import astropy.io.fits as pyfits
 
 import healpy as hp
 
@@ -68,6 +69,8 @@ def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, sa
 
     lastax = None
 
+    thetas, phis = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+
     for ax in fig.axes:
         if isinstance(ax, hp.projaxes.HpxCartesianAxes):
             lastax = ax
@@ -76,8 +79,9 @@ def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, sa
                     cbs.add_colorbar(art, ax)
 
     if lastax is not None:
+        diff = diff[thetas <= theta_max]
         lastax.text(0.92, 0.05, 'rms residual: %.3e\nmax residual: %.3e' % (diff.std(), diff.max()),
-                    ha='right', va='center', transform=fig.axes[4].transAxes)
+                    ha='right', va='center', transform=lastax.transAxes)
 
     if savefile is not None:
         fig.set_size_inches(14, 5)
@@ -139,7 +143,7 @@ def plot_sampling(ll, mm, sel_ll, sel_mm, savefile=None):
         plt.close(fig)
 
 
-def plot_vlm_vs_vlm_rec(sel_ll, sel_mm, sel_vlm, vlm_rec, savefile=None):
+def plot_vlm_vs_vlm_rec(sel_ll, sel_mm, sel_vlm, vlm_rec, savefile=None, name='vlm'):
     fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 5))
 
     ax1.scatter(sel_mm, abs(sel_vlm), c='blue', marker='o', label='Input')
@@ -148,7 +152,7 @@ def plot_vlm_vs_vlm_rec(sel_ll, sel_mm, sel_vlm, vlm_rec, savefile=None):
     ax1.set_ylim(1e-5, 1)
     ax1.set_xlim(0, max(sel_mm))
     ax1.set_xlabel('m')
-    ax1.set_ylabel('abs(vlm)')
+    ax1.set_ylabel('abs(%s)' % name)
     ax1.legend()
 
     ax2.scatter(sel_ll, abs(sel_vlm), c='blue', marker='o', label='Input')
@@ -157,7 +161,7 @@ def plot_vlm_vs_vlm_rec(sel_ll, sel_mm, sel_vlm, vlm_rec, savefile=None):
     ax2.set_ylim(1e-5, 5)
     ax2.set_xlim(0, max(sel_ll))
     ax2.set_xlabel('l')
-    ax2.set_ylabel('abs(vlm)')
+    ax2.set_ylabel('abs(%s)' % name)
     ax2.legend()
 
     if savefile is not None:
@@ -165,26 +169,26 @@ def plot_vlm_vs_vlm_rec(sel_ll, sel_mm, sel_vlm, vlm_rec, savefile=None):
         plt.close(fig)
 
 
-def plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, fisher_error,
-                            savefile=None, vmin=1e-6, vmax=1e2):
+def plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, cov_error,
+                            savefile=None, vmin=1e-6, vmax=1e2, name='vlm'):
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(ncols=2, nrows=2, figsize=(10, 10))
 
     cbs = plotutils.ColorbarSetting(plotutils.ColorbarInnerPosition(location=2, height="80%", pad=1))
 
     lm_map = util.get_lm_map(abs(sel_vlm), sel_ll, sel_mm)
     lm_map_rec = util.get_lm_map(abs(vlm_rec), sel_ll, sel_mm)
-    lm_map_fisher_error = util.get_lm_map(abs(fisher_error), sel_ll, sel_mm)
+    lm_map_cov_error = util.get_lm_map(abs(cov_error), sel_ll, sel_mm)
 
     extent = (min(sel_ll), max(sel_ll), min(sel_mm), max(sel_mm))
 
     im_mappable = ax1.imshow(abs(lm_map), norm=plotutils.LogNorm(), vmin=vmin,
                              vmax=vmax, extent=extent, aspect='auto')
-    ax1.set_title('Input vlm')
+    ax1.set_title('Input %s' % name)
     cbs.add_colorbar(im_mappable, ax1)
 
     im_mappable = ax2.imshow(abs(lm_map_rec), norm=plotutils.LogNorm(), vmin=vmin,
                              vmax=vmax, extent=extent, aspect='auto')
-    ax2.set_title('Recovered vlm')
+    ax2.set_title('Recovered %s' % name)
     cbs.add_colorbar(im_mappable, ax2)
 
     im_mappable = ax3.imshow(abs(lm_map - lm_map_rec), norm=plotutils.LogNorm(), vmin=vmin,
@@ -192,9 +196,9 @@ def plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, fisher_error,
     ax3.set_title('Diff')
     cbs.add_colorbar(im_mappable, ax3)
 
-    im_mappable = ax4.imshow(lm_map_fisher_error, norm=plotutils.LogNorm(), vmin=vmin,
+    im_mappable = ax4.imshow(lm_map_cov_error, norm=plotutils.LogNorm(), vmin=vmin,
                              vmax=vmax, extent=extent, aspect='auto')
-    ax4.set_title('Fisher error')
+    ax4.set_title('Noise covariance matrix')
     cbs.add_colorbar(im_mappable, ax4)
 
     for ax in (ax1, ax2, ax3, ax4):
@@ -240,7 +244,7 @@ def plot_mf_power_spectra(ll, mm, alms, freqs, config, savefile=None):
     fig = plt.figure()
     ax = fig.add_subplot(111)
 
-    l_sampled = np.arange(max(ll) + 1)[np.bincount(ll) > (config.out_mmax_full_sample + 1)]
+    l_sampled = np.arange(max(ll) + 1)[np.bincount(ll) > 0]
     idx = np.where(np.in1d(ll, l_sampled))[0]
 
     for freq, alm in zip(freqs, alms):
@@ -257,7 +261,45 @@ def plot_mf_power_spectra(ll, mm, alms, freqs, config, savefile=None):
         plt.close(fig)
 
 
-def plot_vlm_diff(sel_ll, sel_mm, sel_vlm, vlm_rec, savefile=None):
+def plot_mf_power_spectr_diff(ll, mm, alms, alms_rec, freqs, savefile=None):
+    alm_cube = np.array(alms)
+    alm_rec_cube = np.array(alms_rec)
+    ps_rec = []
+    ps = []
+    for i in range(alm_cube.shape[0]):
+        ps.append(util.get_power_spectra(alm_cube[i], ll, mm))
+        ps_rec.append(util.get_power_spectra(alm_rec_cube[i], ll, mm))
+
+    fig, (ax1, ax2, ax3) = plt.subplots(nrows=3, figsize=(6, 12))
+    cbs = plotutils.ColorbarSetting(plotutils.ColorbarOutterPosition())
+    extent = (min(ll), max(ll), min(freqs), max(freqs))
+
+    im_mappable = ax1.imshow(np.array(ps), aspect='auto', norm=plotutils.LogNorm(), extent=extent)
+    cbs.add_colorbar(im_mappable, ax1)
+    ax1.set_ylabel("Frequency")
+    ax1.set_xlabel('l')
+    ax1.set_title("Original power spectra")
+
+    im_mappable = ax2.imshow(np.array(ps_rec), aspect='auto', norm=plotutils.LogNorm(), extent=extent)
+    cbs.add_colorbar(im_mappable, ax2)
+    ax2.set_ylabel("Frequency")
+    ax2.set_xlabel('l')
+    ax2.set_title("Recovered power spectra")
+
+    im_mappable = ax3.imshow(np.array(ps_rec) - np.array(ps), aspect='auto', extent=extent)
+    cbs.add_colorbar(im_mappable, ax3)
+    ax3.set_ylabel("Frequency")
+    ax3.set_xlabel('l')
+    ax3.set_title("Difference")
+
+    if savefile is not None:
+        fig.savefig(savefile)
+        plt.close(fig)
+
+    return np.array(ps), np.array(ps_rec)
+
+
+def plot_vlm_diff(sel_ll, sel_mm, sel_vlm, vlm_rec, savefile=None, name='vlm'):
     fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 5))
 
     ax1.scatter(sel_mm, abs(vlm_rec.real - sel_vlm.real), c='green', marker='+', label='Input')
@@ -265,7 +307,7 @@ def plot_vlm_diff(sel_ll, sel_mm, sel_vlm, vlm_rec, savefile=None):
     ax1.set_ylim(1e-5, 1e-1)
     ax1.set_xlim(0, max(sel_mm))
     ax1.set_xlabel('m')
-    ax1.set_ylabel('abs(vlm.real - vlm_rec.real)')
+    ax1.set_ylabel('abs(%s.real - %s_rec.real)' % (name, name))
 
     diff = vlm_rec.real - sel_vlm.real
     ax2.scatter(sel_ll, abs(diff), c='green', marker='+', label='Input')
@@ -273,7 +315,7 @@ def plot_vlm_diff(sel_ll, sel_mm, sel_vlm, vlm_rec, savefile=None):
     ax2.set_ylim(1e-5, 1e-1)
     ax2.set_xlim(0, max(sel_ll))
     ax2.set_xlabel('l')
-    ax2.set_ylabel('abs(vlm.real - vlm_rec.real)')
+    ax2.set_ylabel('abs(%s.real - %s_rec.real)' % (name, name))
     ax2.text(0.02, 0.95, 'std diff: %.3e\nmax diff: %.3e' % (diff.std(), abs(diff).max()),
              ha='left', va='center', transform=ax2.transAxes)
 
@@ -328,13 +370,25 @@ def simulate_sky(config):
     else:
         print 'Not using any beam'
         beam = np.ones_like(thetas)
+    full_maps = [full_map * a for a in config.cl_freq]
 
-    map = full_map * beam
-    alm = hp.map2alm(map, lmax)
+    fg_maps = [m * beam for m in full_maps]
+    fg_alms = [hp.map2alm(m, lmax) for m in fg_maps]
 
-    alms = [alm * n for n in config.cl_freq]
+    if config.add_eor is True:
+        eor_fits = pyfits.open(config.eor_file)
+        eor_maps_cart = [eor_fits[0].data[config.eor_freq_res_n * k] for k in range(len(full_maps))]
+        eor_maps = [util.cartmap2healpix(eor_map_cart, config.eor_res, config.nside) * beam
+                    for eor_map_cart in eor_maps_cart]
+        eor_alms = [hp.map2alm(m, lmax) for m in eor_maps]
+    else:
+        eor_alms = [np.zeros_like(m) for m in fg_alms]
 
-    return ll, mm, alms
+    alms = [m1 + m2 for m1, m2, in zip(fg_alms, eor_alms)]
+
+    beam_lm = hp.map2alm(beam, lmax)
+
+    return ll, mm, alms, fg_alms, eor_alms, beam_lm
 
 
 def sample_input_alm(config, alms, ll, mm):
@@ -447,17 +501,17 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config, result_fre
         dct_imag = block_diag(dct_blocks).tocsc()
         dct_imag_full = block_diag(dct_blocks_full).tocsc()
 
-        print "Computing dot products of T and DCT ..."
+        print "Computing dot products of T and DCT ...",
         # print dct_real.nnz, dct_real.shape
-        # t = time.time()
+        t = time.time()
         # # X_r = np.dot(trm.T_r.T, dct_real)
         # X_r = (dct_real.T.dot(trm.T_r)).T
         # print time.time() - t
-        # t = time.time()
-        # X_r = np.dot(trm.T_r.T, dct_real)
+        # dct_real_arr = dct_real.toarray()
+        # X_r = np.dot(trm.T_r.T, dct_real_arr)
         X_r = (dct_real.T.dot(trm.T_r)).T
-        # print time.time() - t
-        # X_i = np.dot(trm.T_i.T, dct_imag)
+        print "Done in %.2f s" % (time.time() - t)
+        # X_i = np.dot(trm.T_i.T, dct_imag.toarray())
         X_i = (dct_imag.T.dot(trm.T_i)).T
 
     else:
@@ -482,17 +536,25 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config, result_fre
     lhs_i = np.dot(X_i_dot_C_Dinv, X_i) + np.eye(X_i.shape[1]) * config.reg_lambda
     rhs_i = np.dot(X_i_dot_C_Dinv, Vobs.imag)
 
-    print "Building fisher matrix ..."
-    fisher_error_i = np.sqrt(np.diag(np.linalg.inv(lhs_i)))
-    fisher_error_r = np.sqrt(np.diag(np.linalg.inv(lhs_r)))
+    print "Building covariance matrix ...",
+    t = time.time()
+    lhs_r_err_1 = np.linalg.inv(lhs_r)
+    lhs_r_err_2 = np.dot(X_r_dot_C_Dinv, X_r)
+    cov_error_r = np.sqrt(np.diag(np.dot(np.dot(lhs_r_err_2, lhs_r_err_1), lhs_r_err_1)))
+
+    lhs_i_err_1 = np.linalg.inv(lhs_i)
+    lhs_i_err_2 = np.dot(X_i_dot_C_Dinv, X_i)
+    cov_error_i = np.sqrt(np.diag(np.dot(np.dot(lhs_i_err_2, lhs_i_err_1), lhs_i_err_1)))
 
     if config.use_dct:
-        # fisher_error_r = np.dot(np.dot(fisher_error_r, dct_real.T), dct_real_full)
-        fisher_error_r = dct_real_full.T.dot(dct_real.dot(fisher_error_r.T).T).T
-        # fisher_error_i = np.dot(np.dot(fisher_error_i, dct_imag.T), dct_imag_full)
-        fisher_error_i = dct_imag_full.T.dot(dct_imag.dot(fisher_error_i.T).T).T
+        # cov_error_r = np.dot(np.dot(cov_error_r, dct_real.T), dct_real_full)\
+        # print cov_error_r.shape, dct_real.shape, dct_real_full.shape, dct_real.dot(cov_error_r.T).shape
+        cov_error_r = dct_real_full.T.dot(dct_real.dot(cov_error_r.T)).T
+        # cov_error_i = np.dot(np.dot(cov_error_i, dct_imag.T), dct_imag_full)
+        cov_error_i = dct_imag_full.T.dot(dct_imag.dot(cov_error_i.T)).T
 
-    fisher_error = np.abs(trm.recombine(fisher_error_r, fisher_error_i))
+    cov_error = np.abs(trm.recombine(cov_error_r, cov_error_i))
+    print "Done in %.2f s" % (time.time() - t)
 
     print '\nStarting CG inversion for the real visibilities ...'
     start = time.time()
@@ -513,37 +575,50 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config, result_fre
     alm_rec = trm.recombine(alm_rec_r, alm_rec_i)
     Vrec = np.dot(alm_rec_r, trm.T_r) + 1j * np.dot(alm_rec_i, trm.T_i)
 
-    return alm_rec, Vrec, fisher_error
+    return alm_rec, Vrec, cov_error
 
 
 def get_config(dirname):
     return imp.load_source('config', os.path.join(dirname, 'config.py'))
 
 
-def save_alm(dirname, ll, mm, alm, alm_rec, fisher_error):
+def save_alm(dirname, ll, mm, alm, alm_fg, alm_eor, alm_rec, cov_error):
     filename = os.path.join(dirname, 'alm.dat')
     print "Saving alm result to:", filename
 
-    np.savetxt(filename, np.array([ll, mm, alm.real, alm.imag, alm_rec.real,
-                                   alm_rec.imag, fisher_error.real, fisher_error.imag]).T)
+    np.savetxt(filename, np.array([ll, mm, alm.real, alm.imag, alm_fg.real, alm_fg.imag,
+                                   alm_eor.real, alm_eor.imag, alm_rec.real, alm_rec.imag,
+                                   cov_error.real, cov_error.imag]).T)
 
 
 def load_alm(dirname):
     filename = os.path.join(dirname, 'alm.dat')
     print "Loading alm result from:", filename
 
-    ll, mm, alm_real, alm_imag, alm_rec_real, alm_rec_imag, \
-        fisher_error_real, fisher_error_imag = np.loadtxt(filename).T
+    a = np.loadtxt(filename)
 
-    return ll, mm, alm_real + 1j * alm_imag, alm_rec_real + 1j * alm_rec_imag, \
-        fisher_error_real + 1j * fisher_error_imag
+    if a.shape[1] == 8:
+        ll, mm, alm_real, alm_imag, alm_rec_real, alm_rec_imag, \
+            cov_error_real, cov_error_imag = a.T
+
+        return ll, mm, alm_real + 1j * alm_imag, alm_rec_real + 1j * alm_rec_imag, \
+            cov_error_real + 1j * cov_error_imag
+    elif a.shape[1] == 12:
+        ll, mm, alm_real, alm_imag, alm_fg_real, alm_fg_imag, alm_eor_real, alm_eor_imag, \
+            alm_rec_real, alm_rec_imag, cov_error_real, cov_error_imag = a.T
+
+        return ll, mm, alm_real + 1j * alm_imag, alm_fg_real + 1j * alm_fg_imag, \
+            alm_eor_real + 1j * alm_eor_imag, alm_rec_real + 1j * alm_rec_imag, \
+            cov_error_real + 1j * cov_error_imag
+    else:
+        print "Format not understood"
 
 
-def save_visibilities(dirname, ru, uphis, uthetas, Vobs, Vrec):
+def save_visibilities(dirname, ru, uphis, uthetas, V, Vobs, Vrec):
     filename = os.path.join(dirname, 'visibilities.dat')
     print "Saving visibilities result to:", filename
 
-    np.savetxt(filename, np.array([ru, uphis, uthetas,
+    np.savetxt(filename, np.array([ru, uphis, uthetas, V.real, V.imag,
                                    Vobs.real, Vobs.imag, Vrec.real, Vrec.imag]).T)
 
 
@@ -551,9 +626,18 @@ def load_visibilities(dirname):
     filename = os.path.join(dirname, 'visibilities.dat')
     print "Loading visibilities result from:", filename
 
-    ru, uphis, uthetas, Vobs_real, Vobs_imag, Vrec_real, Vrec_imag = np.loadtxt(filename).T
+    a = np.loadtxt(filename)
 
-    return ru, uphis, uthetas, Vobs_real + 1j * Vobs_imag, Vrec_real + 1j * Vrec_imag
+    if a.shape[1] == 7:
+        ru, uphis, uthetas, Vobs_real, Vobs_imag, Vrec_real, Vrec_imag = np.loadtxt(filename).T
+
+        return ru, uphis, uthetas, Vobs_real + 1j * Vobs_imag, Vrec_real + 1j * Vrec_imag
+    elif a.shape[1] == 9:
+        ru, uphis, uthetas, V_real, V_imag, Vobs_real, Vobs_imag, Vrec_real, Vrec_imag = np.loadtxt(filename).T
+
+        return ru, uphis, uthetas, V_real + 1j * V_imag, Vobs_real + 1j * Vobs_imag, Vrec_real + 1j * Vrec_imag
+    else:
+        print "Format not understood"
 
 
 def load_results(dirname):
@@ -565,22 +649,45 @@ def load_results(dirname):
     key_fct = lambda a: int(a.split('_')[-1])
     freq_res = []
     for freq_dir in sorted(glob.glob(os.path.join(dirname, 'freq_*')), key=key_fct):
-        ll, mm, alm, alm_rec, fisher_error = load_alm(freq_dir)
+        ll, mm, alm, alm_rec, cov_error = load_alm(freq_dir)
         ru, uphis, uthetas, Vobs, Vrec = load_visibilities(freq_dir)
-        freq_res.append([alm, alm_rec, fisher_error, ru, uphis, uthetas, Vobs, Vrec])
+        freq_res.append([alm, alm_rec, cov_error, ru, uphis, uthetas, Vobs, Vrec])
 
-    alm, alm_rec, fisher_error, ru, uphis, uthetas, Vobs, Vrec = zip(*freq_res)
+    alm, alm_rec, cov_error, ru, uphis, uthetas, Vobs, Vrec = zip(*freq_res)
 
-    return ll.astype(int), mm.astype(int), alm, alm_rec, fisher_error, ru, uphis, uthetas, Vobs, Vrec
+    return ll.astype(int), mm.astype(int), alm, alm_rec, cov_error, ru, uphis, uthetas, Vobs, Vrec
+
+
+def load_results_v2(dirname):
+    if not os.path.exists(dirname):
+        print "Path does not exists:", dirname
+        return
+
+    print "loading result from %s ..." % dirname
+    key_fct = lambda a: int(a.split('_')[-1])
+    freq_res = []
+    for freq_dir in sorted(glob.glob(os.path.join(dirname, 'freq_*')), key=key_fct):
+        ll, mm, alm, alm_fg, alm_eor, alm_rec, cov_error = load_alm(freq_dir)
+        ru, uphis, uthetas, V, Vobs, Vrec = load_visibilities(freq_dir)
+        freq_res.append([alm, alm_fg, alm_eor, alm_rec, cov_error, ru, uphis, uthetas, V, Vobs, Vrec])
+
+    alm, alm_fg, alm_eor, alm_rec, cov_error, ru, uphis, uthetas, V, Vobs, Vrec = zip(*freq_res)
+
+    return ll.astype(int), mm.astype(int), alm, alm_fg, alm_eor, alm_rec, cov_error, ru, uphis, uthetas, V, Vobs, Vrec
 
 
 def do_inversion(config, result_dir):
-    full_ll, full_mm, full_alms = simulate_sky(config)
+    nfreqs = len(config.freqs_mhz)
+
+    full_ll, full_mm, full_alms, fg_alms, eor_alms, beam_alm = simulate_sky(config)
     plot_sky_cart(full_alms[0], full_ll, full_mm, config.nside, theta_max=config.fwhm,
                   title='Input sky, beam=%.1f deg, lmax=%s' % (np.degrees(config.fwhm), config.lmax),
                   savefile=os.path.join(result_dir, 'input_sky.pdf'))
 
-    inp_alms, inp_ll, inp_mm = sample_input_alm(config, full_alms, full_ll, full_mm)
+    inp_alms, inp_ll, inp_mm = sample_input_alm(config, full_alms + fg_alms + eor_alms + [beam_alm], full_ll, full_mm)
+    fg_alms = inp_alms[nfreqs:2 * nfreqs]
+    eor_alms = inp_alms[2 * nfreqs:3 * nfreqs]
+    beam_alm = inp_alms[-1]
 
     rb, uphis, uthetas = simulate_uv_cov(config)
 
@@ -625,6 +732,7 @@ def do_inversion(config, result_dir):
 
         # computing the visibilities
         alm = inp_alms[i]
+        # alm = alm - 2.6 * beam_alm
         print "\nBuilding visibilities..."
         V = compute_visibilities(alm, inp_ll, inp_mm, uphis, uthetas, lamb, trm)
         # break
@@ -648,13 +756,13 @@ def do_inversion(config, result_dir):
 
             uthetas, uphis, ru = sel_ylm[0].thetas, sel_ylm[0].phis, sel_ylm[0].rb / lamb
 
-        alm_rec, Vrec, fisher_error = alm_ml_inversion(sel_ll, sel_mm, Vobs, uphis, uthetas,
-                                                       lamb, trm, config, result_freq_dir)
+        alm_rec, Vrec, cov_error = alm_ml_inversion(sel_ll, sel_mm, Vobs, uphis, uthetas,
+                                                    lamb, trm, config, result_freq_dir)
 
         alms_rec.append(alm_rec)
 
-        save_alm(result_freq_dir, sel_ll, sel_mm, sel_alm, alm_rec, fisher_error)
-        save_visibilities(result_freq_dir, ru, uphis, uthetas, Vobs, Vrec)
+        save_alm(result_freq_dir, sel_ll, sel_mm, sel_alm, fg_alms[i][idx], eor_alms[i][idx], alm_rec, cov_error)
+        save_visibilities(result_freq_dir, ru, uphis, uthetas, V, Vobs, Vrec)
 
         vlm_rec = util.alm2vlm(alm_rec, sel_ll)
 
@@ -663,7 +771,7 @@ def do_inversion(config, result_dir):
         plot_vlm_vs_vlm_rec(sel_ll, sel_mm, sel_vlm, vlm_rec, os.path.join(result_freq_dir, 'vlm_vs_vlm_rec.pdf'))
 
         # plot vlm vs vlm_rec in a map
-        plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, fisher_error,
+        plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, 4 * np.pi * cov_error,
                                 os.path.join(result_freq_dir, 'lm_maps_imag.pdf'))
 
         # plot power spectra

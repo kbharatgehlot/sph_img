@@ -16,6 +16,11 @@ from libwise import nputils, plotutils
 
 import healpy as hp
 
+from scipy.interpolate import RectBivariateSpline
+
+import numexpr as ne
+from scipy import weave
+
 import Ylm
 
 LOFAR_STAT_POS = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'statpos.data')
@@ -114,13 +119,25 @@ class Alm2VisTransMatrix(object):
 
         p_m0 = ((-1) ** (ylm_m0_l_even.ll / 2))[:, np.newaxis]
         p_mp = ((-1) ** (ylm_lm_even.ll / 2))[:, np.newaxis]
-        # PERF: loosing quite some time here. could be two time faster if ylm was c contigous
-        # t = time.time()
-        v1 = p_m0 * ylm_m0_l_even.data.real * get_jn_fast(ylm_m0_l_even.ll, ylm_m0_l_even.rb / lamb)
-        jn = get_jn_fast(ylm_lm_even.ll, ylm_lm_even.rb / lamb)
-        v2 = p_mp * 2 * ylm_lm_even.data.real * jn
-        v3 = p_mp * -2 * ylm_lm_even.data.imag * jn
-        self.T_r = 4 * np.pi * np.vstack((v1, v2, v3))
+        # PERF: loosing quite some time here.
+        t = time.time()
+        self.T_r = np.zeros((len(self.ll_r), ylm_m0_l_even.data.shape[1]))
+        v = 4 * np.pi * p_m0 * ylm_m0_l_even.data.real * get_jn_fast_weave(ylm_m0_l_even.ll, ylm_m0_l_even.rb / lamb)
+        i1 = len(v)
+        self.T_r[:i1, :] = v
+
+        r = ylm_lm_even.data.real
+        i = ylm_lm_even.data.imag
+        pi = np.pi
+        jn = get_jn_fast_weave(ylm_lm_even.ll, ylm_lm_even.rb / lamb)
+
+        v = ne.evaluate('4 * pi * p_mp * 2 * r * jn')
+        i2 = len(v)
+        self.T_r[i1:i1 + i2, :] = v
+
+        v = ne.evaluate('4 * pi * p_mp * -2 * i * jn')
+        i3 = len(v)
+        self.T_r[i1 + i2:i1 + i2 + i3, :] = v
         # print time.time() - t
 
         self.ll_i = np.hstack((ylm_m0_l_odd.ll, ylm_lm_odd.ll, ylm_lm_odd.ll))
@@ -128,12 +145,27 @@ class Alm2VisTransMatrix(object):
 
         p_m0 = ((-1) ** (ylm_m0_l_odd.ll / 2))[:, np.newaxis]
         p_mp = ((-1) ** (ylm_lm_odd.ll / 2))[:, np.newaxis]
-        # t = time.time()
-        v1 = p_m0 * ylm_m0_l_odd.data.real * get_jn_fast(ylm_m0_l_odd.ll, ylm_m0_l_odd.rb / lamb)
-        jn = get_jn_fast(ylm_lm_odd.ll, ylm_lm_odd.rb / lamb)
-        v2 = p_mp * 2 * ylm_lm_odd.data.real * jn
-        v3 = p_mp * -2 * ylm_lm_odd.data.imag * jn
-        self.T_i = - 4 * np.pi * np.vstack((v1, v2, v3))
+
+        t = time.time()
+        self.T_i = np.zeros((len(self.ll_i), ylm_m0_l_even.data.shape[1]))
+
+        v = - 4 * np.pi * p_m0 * ylm_m0_l_odd.data.real * get_jn_fast_weave(ylm_m0_l_odd.ll, ylm_m0_l_odd.rb / lamb)
+        i1 = len(v)
+        self.T_i[:i1, :] = v
+
+        r = ylm_lm_odd.data.real
+        i = ylm_lm_odd.data.imag
+        pi = np.pi
+        jn = get_jn_fast_weave(ylm_lm_odd.ll, ylm_lm_odd.rb / lamb)
+
+        v = ne.evaluate('-4 * pi * p_mp * 2 * r * jn')
+        i2 = len(v)
+        self.T_i[i1:i1 + i2, :] = v
+
+        v = ne.evaluate('-4 * pi * p_mp * -2 * i * jn')
+        i3 = len(v)
+        self.T_i[i1 + i2:i1 + i2 + i3, :] = v
+
         # print time.time() - t
         # t = time.time()
         # jn = get_jn_fast(ylm_lm_even.ll, ylm_lm_even.rb)
@@ -548,6 +580,61 @@ def get_dct3(n, nk, ni=None, nki=None):
     return dct
 
 
+def sparse_to_dense_weave_openmp(sparse, idx_x, idx_y):
+    nx = len(idx_x)
+    ny = len(idx_y)
+    ny_sparse = sparse.shape[1]
+    sparse = np.ascontiguousarray(sparse)
+    res = np.zeros((nx, ny))
+
+    code = '''
+    int i;
+    int j;
+    #pragma omp parallel for private(i) private(j)
+    for(i = 0; i < nx; i++)
+        for(j = 0; j < ny; j++)
+            res[i * ny + j] = sparse[idx_x[i] * ny_sparse + idx_y[j]];
+    '''
+
+    weave.inline(code, ['res', 'nx', 'ny', 'ny_sparse', 'idx_x', 'idx_y', 'sparse'],
+                 extra_compile_args=['-march=native  -O3  -fopenmp '],
+                 support_code=r"""
+                    #include <stdio.h>
+                    #include <omp.h>
+                    #include <math.h>""",
+                 libraries=['gomp'])
+
+    return res
+
+
+def sparse_to_dense_weave(sparse, idx_x, idx_y):
+    nx = len(idx_x)
+    ny = len(idx_y)
+    ny_sparse = sparse.shape[1]
+    sparse = np.ascontiguousarray(sparse)
+    res = np.zeros((nx, ny))
+
+    code = '''
+    int i;
+    int j;
+    for(i = 0; i < nx; i++)
+        for(j = 0; j < ny; j++)
+            res[i * ny + j] = sparse[idx_x[i] * ny_sparse + idx_y[j]];
+    '''
+
+    weave.inline(code, ['res', 'nx', 'ny', 'ny_sparse', 'idx_x', 'idx_y', 'sparse'])
+
+    return res
+
+
+def get_jn_fast_weave(ll, ru, fct=sparse_to_dense_weave_openmp):
+    uniq, idx = np.unique(ll, return_inverse=True)
+    uniq_r, idx_r = np.unique(ru, return_inverse=True)
+    sparse = np.array([sph_jn(max(uniq), 2 * np.pi * r)[0][uniq] for r in uniq_r]).T
+
+    return fct(sparse, idx, idx_r)
+
+
 def get_jn_fast(ll, ru):
     uniq, idx = np.unique(ll, return_inverse=True)
     uniq_r, idx_r = np.unique(ru, return_inverse=True)
@@ -644,6 +731,26 @@ def cart2sph(X, Y, Z):
     theta = np.pi / 2. - np.arctan2(Z, np.sqrt(X**2. + Y**2.))  # convert elevation [pi/2, -pi/2] to theta [0, pi]
 
     return r, phi, theta
+
+
+def cartmap2healpix(cart_map, res, nside):
+    ''' res: resolution in radians
+        nside: The healpix nside parameter, must be power of 2 and should match res '''
+
+    nx, ny = cart_map.shape
+    x = (np.arange(nx) - nx / 2) * res
+    y = (np.arange(ny) - ny / 2) * res
+
+    hp_map = np.zeros(hp.nside2npix(nside))
+    thetas, phis = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+    sph_x, sph_y, sph_z = sph2cart(thetas, phis)
+
+    interp_fct = RectBivariateSpline(x, y, cart_map)
+
+    idx = (thetas < min(nx, ny) / 2 * res)
+    hp_map[idx] = interp_fct.ev(sph_x[idx], sph_y[idx])
+
+    return hp_map
 
 
 def real_pairing(a, b):
@@ -913,9 +1020,9 @@ def test_uv_cov():
     # plt.ylabel('uphis')
     # plt.show()
 
-    freqs = np.arange(110, 130, 5)
-    # freqs = [150.]
-    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 0, 60, 5000, min_max_is_baselines=False)
+    # freqs = np.arange(110, 130, 5)
+    freqs = [110.]
+    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 0, 300, 200, min_max_is_baselines=False)
     plt.figure()
     colors = plotutils.ColorSelector()
     uphis = []
@@ -928,7 +1035,7 @@ def test_uv_cov():
             len(np.unique(np.round(uphi, decimals=12))), len(np.unique(np.round(utheta, decimals=12)))
         uphis.append(np.round(uphi, decimals=12))
         uthetas.append(np.round(utheta, decimals=12))
-        plt.scatter(ru, uphi, c=colors.get(), marker='+', s=5)
+        plt.scatter(u, v, c=colors.get(), marker='+', s=5)
         # plt.scatter(utheta, uphi, c=colors.get(), marker='+', )
     # print np.allclose(np.unique(uphis[0]), np.unique(uphis[1]))
     # print np.allclose(np.unique(uthetas[0]), np.unique(uthetas[1]))
@@ -1204,7 +1311,7 @@ if __name__ == '__main__':
     # test_cached_matrix()
     # test_cached_mp_matrix()
     # test_cached_ylm()
-    # test_uv_cov()
+    test_uv_cov()
     # test_lm_index()
     # test_ylm_precision()
     # test_pairing()
@@ -1212,4 +1319,4 @@ if __name__ == '__main__':
     # test_ylm_compress()
     # test_index_matrix()
     # test_ylm_index_matrix()
-    test_ylm_set()
+    # test_ylm_set()
