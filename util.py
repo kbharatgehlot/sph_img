@@ -588,8 +588,8 @@ def sparse_to_dense_weave_openmp(sparse, idx_x, idx_y):
     res = np.zeros((nx, ny))
 
     code = '''
-    int i;
-    int j;
+    long i;
+    long j;
     #pragma omp parallel for private(i) private(j)
     for(i = 0; i < nx; i++)
         for(j = 0; j < ny; j++)
@@ -615,8 +615,8 @@ def sparse_to_dense_weave(sparse, idx_x, idx_y):
     res = np.zeros((nx, ny))
 
     code = '''
-    int i;
-    int j;
+    long i;
+    long j;
     for(i = 0; i < nx; i++)
         for(j = 0; j < ny; j++)
             res[i * ny + j] = sparse[idx_x[i] * ny_sparse + idx_y[j]];
