@@ -15,6 +15,7 @@ from libwise import scriptshelper as sh
 
 from scipy.sparse.linalg import cg
 from scipy.sparse import block_diag, diags
+from psparse import pmultiply
 
 import astropy.constants as const
 import astropy.io.fits as pyfits
@@ -484,8 +485,8 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config, result_fre
                 dct_blocks_full.append(dct_fct(n, nk, nki=n))
         # print time.time() - t
         # t = time.time()
-        dct_real = block_diag(dct_blocks).tocsc()
-        dct_real_full = block_diag(dct_blocks_full).tocsc()
+        dct_real = block_diag(dct_blocks).tocsr()
+        dct_real_full = block_diag(dct_blocks_full).tocsr()
         # print time.time() - t
 
         dct_blocks = []
@@ -498,10 +499,10 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config, result_fre
                 dct_fct = get_dct_fct(m, 'imag')
                 dct_blocks.append(dct_fct(n, nk))
                 dct_blocks_full.append(dct_fct(n, nk, nki=n))
-        dct_imag = block_diag(dct_blocks).tocsc()
-        dct_imag_full = block_diag(dct_blocks_full).tocsc()
+        dct_imag = block_diag(dct_blocks).tocsr()
+        dct_imag_full = block_diag(dct_blocks_full).tocsr()
 
-        print "Computing dot products of T and DCT ...",
+        print "Computing dot products of T and DCT ..."
         # print dct_real.nnz, dct_real.shape
         t = time.time()
         # # X_r = np.dot(trm.T_r.T, dct_real)
@@ -509,10 +510,15 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config, result_fre
         # print time.time() - t
         # dct_real_arr = dct_real.toarray()
         # X_r = np.dot(trm.T_r.T, dct_real_arr)
-        X_r = (dct_real.T.dot(trm.T_r)).T
-        print "Done in %.2f s" % (time.time() - t)
         # X_i = np.dot(trm.T_i.T, dct_imag.toarray())
-        X_i = (dct_imag.T.dot(trm.T_i)).T
+        # temp = np.asfortranarray(trm.T_r)
+        if config.use_psparse:
+            X_r = pmultiply(dct_real.T, np.asfortranarray(trm.T_r)).T
+            X_i = pmultiply(dct_imag.T, np.asfortranarray(trm.T_i)).T
+        else:
+            X_r = (dct_real.T.dot(trm.T_r)).T
+            X_i = (dct_imag.T.dot(trm.T_i)).T
+        print "Done in %.2f s" % (time.time() - t)
 
     else:
         X_r = trm.T_r.T

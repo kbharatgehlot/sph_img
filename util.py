@@ -1022,7 +1022,7 @@ def test_uv_cov():
 
     # freqs = np.arange(110, 130, 5)
     freqs = [110.]
-    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 0, 300, 200, min_max_is_baselines=False)
+    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 0, 100, 200, min_max_is_baselines=False)
     plt.figure()
     colors = plotutils.ColorSelector()
     uphis = []

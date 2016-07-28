@@ -111,6 +111,8 @@ dct_fct_i_m1 = util.get_dct2
 # You might want to use something like dct_dl = np.ceil(np.pi / out_theta_max)
 dct_dl = 5.
 
+use_psparse = True
+
 # =================================================================
 # General parameters
 # =================================================================
