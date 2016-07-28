@@ -45,6 +45,8 @@ out_theta_max = 1 * fwhm
 add_eor = True
 eor_file = '../eor_standard.fits'
 eor_res = np.radians(1.17 / 60.)
+
+# step in frequency: should be something like delta_nu / delta_nu_eor
 eor_freq_res_n = 4
 
 # =================================================================
@@ -111,6 +113,7 @@ dct_fct_i_m1 = util.get_dct2
 # You might want to use something like dct_dl = np.ceil(np.pi / out_theta_max)
 dct_dl = 5.
 
+# using psparse will be faster for ncore > 4, slower otherwise.
 use_psparse = True
 
 # =================================================================
