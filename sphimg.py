@@ -50,7 +50,6 @@ def plot_sky_cart(alm, ll, mm, nside, title='', theta_max=0.35, savefile=None):
 
 
 def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, savefile=None):
-    print "sky diff start"
     sys.stdout.flush()
 
     cbs = plotutils.ColorbarSetting(plotutils.ColorbarInnerPosition(location=2, height="80%", pad=1))
@@ -90,18 +89,15 @@ def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, sa
                     ha='right', va='center', transform=lastax.transAxes)
 
     if savefile is not None:
-        print "sky diff save"
         sys.stdout.flush()
         fig.set_size_inches(14, 5)
         fig.savefig(savefile)
         plt.close(fig)
 
-    print "sky diff done"
     sys.stdout.flush()
 
 
 def plot_uv_cov(uu, vv, ww, config, title, savefile=None):
-    print "uv cov start"
     sys.stdout.flush()
 
     fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 5))
@@ -116,11 +112,9 @@ def plot_uv_cov(uu, vv, ww, config, title, savefile=None):
     fig.suptitle(title)
 
     if savefile is not None:
-        print "uv cov print"
         sys.stdout.flush()
         fig.savefig(savefile)
         plt.close(fig)
-    print "uv cov done"
     sys.stdout.flush()
 
 
