@@ -108,6 +108,7 @@ class Alm2VisTransMatrix(object):
 
     def __init__(self, ll, mm, ylm_set, lamb, order='C'):
         self.lm_size = len(ll)
+        pi = np.pi
 
         t = time.time()
         ylm_lm_even, ylm_m0_l_even, ylm_lm_odd, ylm_m0_l_odd = ylm_set
@@ -131,14 +132,15 @@ class Alm2VisTransMatrix(object):
         self.T_r = np.zeros((len(self.ll_r), ylm_m0_l_even.data.shape[1]), order=order)
         print "Time T_r init %.2f s" % (time.time() - t)
         t = time.time()
-        self.T_r[:i1, :] = 4 * np.pi * p_m0 * ylm_m0_l_even.data.real * get_jn_fast_weave(ylm_m0_l_even.ll,
-                                                                                          ylm_m0_l_even.rb / lamb)
+
+        jn = get_jn_fast_weave(ylm_m0_l_even.ll, ylm_m0_l_even.rb / lamb)
+        r = ylm_m0_l_even.data.real
+        self.T_r[:i1, :] = ne.evaluate('4 * pi * p_m0 * r * jn')
         print "Time m0 %.2f s" % (time.time() - t)
 
         t = time.time()
         r = ylm_lm_even.data.real
         i = ylm_lm_even.data.imag
-        pi = np.pi
         jn = get_jn_fast_weave(ylm_lm_even.ll, ylm_lm_even.rb / lamb)
         print "Time jn %.2f s" % (time.time() - t)
 
@@ -161,12 +163,12 @@ class Alm2VisTransMatrix(object):
 
         self.T_i = np.zeros((len(self.ll_i), ylm_m0_l_even.data.shape[1]), order=order)
 
-        self.T_i[:i1, :] = - 4 * np.pi * p_m0 * ylm_m0_l_odd.data.real * get_jn_fast_weave(ylm_m0_l_odd.ll,
-                                                                                           ylm_m0_l_odd.rb / lamb)
+        r = ylm_m0_l_odd.data.real
+        jn = get_jn_fast_weave(ylm_m0_l_odd.ll, ylm_m0_l_odd.rb / lamb)
+        self.T_i[:i1, :] = ne.evaluate('- 4 * pi * p_m0 * r * jn')
 
         r = ylm_lm_odd.data.real
         i = ylm_lm_odd.data.imag
-        pi = np.pi
         jn = get_jn_fast_weave(ylm_lm_odd.ll, ylm_lm_odd.rb / lamb)
 
         self.T_i[i1:i1 + i2, :] = ne.evaluate('-4 * pi * p_mp * 2 * r * jn')
