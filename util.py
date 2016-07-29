@@ -107,6 +107,7 @@ class Alm2VisTransMatrix(object):
     def __init__(self, ll, mm, ylm_set, lamb, order='C'):
         self.lm_size = len(ll)
 
+        t = time.time()
         ylm_lm_even, ylm_m0_l_even, ylm_lm_odd, ylm_m0_l_odd = ylm_set
 
         self.m0_l_even = get_lm_selection_index(ll, mm, ylm_m0_l_even.ll, ylm_m0_l_even.mm, keep_order=True)
@@ -119,26 +120,33 @@ class Alm2VisTransMatrix(object):
 
         p_m0 = ((-1) ** (ylm_m0_l_even.ll / 2))[:, np.newaxis]
         p_mp = ((-1) ** (ylm_lm_even.ll / 2))[:, np.newaxis]
-        # PERF: loosing quite some time here.
+
+        i1 = len(ylm_m0_l_even.ll)
+        i2 = len(ylm_lm_even.ll)
+
+        print "Time lm_selection %.2f s" % (time.time() - t)
         t = time.time()
         self.T_r = np.zeros((len(self.ll_r), ylm_m0_l_even.data.shape[1]), order=order)
-        v = 4 * np.pi * p_m0 * ylm_m0_l_even.data.real * get_jn_fast_weave(ylm_m0_l_even.ll, ylm_m0_l_even.rb / lamb)
-        i1 = len(v)
-        self.T_r[:i1, :] = v
+        print "Time T_r init %.2f s" % (time.time() - t)
+        t = time.time()
+        self.T_r[:i1, :] = 4 * np.pi * p_m0 * ylm_m0_l_even.data.real * get_jn_fast_weave(ylm_m0_l_even.ll,
+                                                                                          ylm_m0_l_even.rb / lamb)
+        print "Time m0 %.2f s" % (time.time() - t)
 
+        t = time.time()
         r = ylm_lm_even.data.real
         i = ylm_lm_even.data.imag
         pi = np.pi
         jn = get_jn_fast_weave(ylm_lm_even.ll, ylm_lm_even.rb / lamb)
+        print "Time jn %.2f s" % (time.time() - t)
 
-        v = ne.evaluate('4 * pi * p_mp * 2 * r * jn')
-        i2 = len(v)
-        self.T_r[i1:i1 + i2, :] = v
+        t = time.time()
+        self.T_r[i1:i1 + i2, :] = ne.evaluate('4 * pi * p_mp * 2 * r * jn')
+        print "Time ev1 %.2f s" % (time.time() - t)
 
-        v = ne.evaluate('4 * pi * p_mp * -2 * i * jn')
-        i3 = len(v)
-        self.T_r[i1 + i2:i1 + i2 + i3, :] = v
-        # print time.time() - t
+        t = time.time()
+        self.T_r[i1 + i2:i1 + i2 + i2, :] = ne.evaluate('4 * pi * p_mp * -2 * i * jn')
+        print "Time ev2 %.2f s" % (time.time() - t)
 
         self.ll_i = np.hstack((ylm_m0_l_odd.ll, ylm_lm_odd.ll, ylm_lm_odd.ll))
         self.mm_i = np.hstack((ylm_m0_l_odd.mm, ylm_lm_odd.mm, ylm_lm_odd.mm))
@@ -146,30 +154,21 @@ class Alm2VisTransMatrix(object):
         p_m0 = ((-1) ** (ylm_m0_l_odd.ll / 2))[:, np.newaxis]
         p_mp = ((-1) ** (ylm_lm_odd.ll / 2))[:, np.newaxis]
 
-        t = time.time()
+        i1 = len(ylm_m0_l_odd.ll)
+        i2 = len(ylm_lm_odd.ll)
+
         self.T_i = np.zeros((len(self.ll_i), ylm_m0_l_even.data.shape[1]), order=order)
 
-        v = - 4 * np.pi * p_m0 * ylm_m0_l_odd.data.real * get_jn_fast_weave(ylm_m0_l_odd.ll, ylm_m0_l_odd.rb / lamb)
-        i1 = len(v)
-        self.T_i[:i1, :] = v
+        self.T_i[:i1, :] = - 4 * np.pi * p_m0 * ylm_m0_l_odd.data.real * get_jn_fast_weave(ylm_m0_l_odd.ll,
+                                                                                           ylm_m0_l_odd.rb / lamb)
 
         r = ylm_lm_odd.data.real
         i = ylm_lm_odd.data.imag
         pi = np.pi
         jn = get_jn_fast_weave(ylm_lm_odd.ll, ylm_lm_odd.rb / lamb)
 
-        v = ne.evaluate('-4 * pi * p_mp * 2 * r * jn')
-        i2 = len(v)
-        self.T_i[i1:i1 + i2, :] = v
-
-        v = ne.evaluate('-4 * pi * p_mp * -2 * i * jn')
-        i3 = len(v)
-        self.T_i[i1 + i2:i1 + i2 + i3, :] = v
-
-        # print time.time() - t
-        # t = time.time()
-        # jn = get_jn_fast(ylm_lm_even.ll, ylm_lm_even.rb)
-        # print "Test:", time.time() - t
+        self.T_i[i1:i1 + i2, :] = ne.evaluate('-4 * pi * p_mp * 2 * r * jn')
+        self.T_i[i1 + i2:i1 + i2 + i2, :] = ne.evaluate('-4 * pi * p_mp * -2 * i * jn')
 
     def split(self, alm):
         ''' Split the alm to be used to recover Re(V) and Im(V) independently'''

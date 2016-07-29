@@ -50,8 +50,6 @@ def plot_sky_cart(alm, ll, mm, nside, title='', theta_max=0.35, savefile=None):
 
 
 def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, savefile=None):
-    sys.stdout.flush()
-
     cbs = plotutils.ColorbarSetting(plotutils.ColorbarInnerPosition(location=2, height="80%", pad=1))
     latra = np.degrees(theta_max)
 
@@ -89,17 +87,12 @@ def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, sa
                     ha='right', va='center', transform=lastax.transAxes)
 
     if savefile is not None:
-        sys.stdout.flush()
         fig.set_size_inches(14, 5)
         fig.savefig(savefile)
         plt.close(fig)
 
-    sys.stdout.flush()
-
 
 def plot_uv_cov(uu, vv, ww, config, title, savefile=None):
-    sys.stdout.flush()
-
     fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 5))
     ax1.scatter(uu, vv)
     ax1.set_xlabel('U')
@@ -112,22 +105,20 @@ def plot_uv_cov(uu, vv, ww, config, title, savefile=None):
     fig.suptitle(title)
 
     if savefile is not None:
-        sys.stdout.flush()
         fig.savefig(savefile)
         plt.close(fig)
-    sys.stdout.flush()
 
 
 def plot_visibilities(uu, vv, ww, V, savefile=None):
     fig = plt.figure(figsize=(12, 5))
-    ax = fig.add_subplot(121, projection='3d')
-    ax.scatter3D(uu, vv, ww, c=abs(V), cmap='jet', norm=plotutils.LogNorm(), lw=0)
-    ax.set_xlabel('U')
-    ax.set_ylabel('V')
-    ax.set_zlabel('W')
+    # ax = fig.add_subplot(121, projection='3d')
+    # ax.scatter3D(uu, vv, ww, c=abs(V), cmap='jet', norm=plotutils.LogNorm(), lw=0)
+    # ax.set_xlabel('U')
+    # ax.set_ylabel('V')
+    # ax.set_zlabel('W')
 
     ru, uphis, uthetas = util.cart2sph(uu, vv, ww)
-    ax = fig.add_subplot(122)
+    ax = fig.add_subplot(111)
     ax.scatter(ru, abs(V), marker='+')
     ax.set_yscale('log')
     ax.set_xlabel('ru')
@@ -725,7 +716,7 @@ def do_inversion(config, result_dir):
     alms_rec = []
 
     for i, freq in enumerate(config.freqs_mhz):
-        plot_pool = multiprocessing.Pool()
+        plot_pool = multiprocessing.Pool(processes=4)
         print "\nProcessing frequency %s MHz" % freq
 
         lamb = const.c.value / (float(freq) * 1e6)
@@ -736,7 +727,7 @@ def do_inversion(config, result_dir):
         os.mkdir(result_freq_dir)
 
         t = time.time()
-        print "Building transformation matrix...",
+        print "Building transformation matrix..."
         inp_ylm = global_inp_ylm.get_chunk(bmin, bmax)
         trm = util.get_alm2vis_matrix(inp_ll, inp_mm, inp_ylm, lamb, order='F')
         print "Done in %.2f s" % (time.time() - t)
