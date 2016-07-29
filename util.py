@@ -29,6 +29,8 @@ NUM_POOL = int(os.environ.get('OMP_NUM_THREADS', 2))
 
 nputils.set_random_seed(10)
 
+ne.set_num_threads(NUM_POOL)
+
 
 class Vlm2VisTransMatrix(object):
     ''' Object that encapsulate all the necessary steps to create the independents
