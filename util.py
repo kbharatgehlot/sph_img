@@ -611,16 +611,6 @@ def alm2map(alm, ll, mm, thetas, phis):
     return a + b
 
 
-def vlm2vis(vlm, ll, mm, uthetas, uphis, rus):
-    # PERF: update with faster verson of ylm, jn
-    ylm = get_ylm(ll, mm, uphis, uthetas)
-    jn = get_jn(ll, rus)
-    trm = Vlm2VisTransMatrix(ll, mm, ylm, jn)
-    vlm_r, vlm_i = trm.split(vlm)
-
-    return np.dot(vlm_r, trm.T_r) + 1j * np.dot(vlm_i, trm.T_i)
-
-
 def fast_alm2map(alm, ll, mm, nside):
     if hp.Alm.getsize(max(ll)) != len(alm):
         full_ll, full_mm = get_lm(max(ll))
@@ -886,10 +876,6 @@ def vlm2alm(vlm, ll):
 
 def alm2vlm(alm, ll):
     return 4 * np.pi * alm * (-1j) ** ll
-
-
-def get_vlm2vis_matrix(ll, mm, ylm, jn):
-    return Vlm2VisTransMatrix(ll, mm, ylm, jn)
 
 
 def get_alm2vis_matrix(ll, mm, ylm, jn, order='C'):

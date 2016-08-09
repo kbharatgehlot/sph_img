@@ -1,5 +1,4 @@
 import os
-import sys
 import imp
 import glob
 import time
@@ -10,9 +9,8 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 from matplotlib.image import AxesImage
-from mpl_toolkits.mplot3d import Axes3D
 
-from libwise import plotutils, nputils
+from libwise import plotutils
 from libwise import scriptshelper as sh
 
 from scipy.sparse.linalg import cg
@@ -486,7 +484,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config):
         for sel_block in [trm.m0_l_even, trm.lm_even, trm.lm_even]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
-                if m > 1:
+                if m > config.dct_mmax_full_sample:
                     nk = int(np.ceil(n / float(config.dct_dl)))
                     dct_fct = get_dct_fct(m, 'real')
                     dct_blocks.append(dct_fct(n, nk))
@@ -506,7 +504,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config):
         for sel_block in [trm.m0_l_odd, trm.lm_odd, trm.lm_odd]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
-                if m > 1:
+                if m > config.dct_mmax_full_sample:
                     nk = int(np.ceil(n / float(config.dct_dl)))
                     dct_fct = get_dct_fct(m, 'imag')
                     dct_blocks.append(dct_fct(n, nk))
