@@ -44,9 +44,13 @@ def plot_sky_cart(alm, ll, mm, nside, title='', theta_max=0.35, savefile=None):
                 lonra=[-theta_max, theta_max], latra=[-theta_max, theta_max], title=title)
     hp.graticule(verbose=False)
 
+    thetas, phis = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+
     if savefile is not None:
         plt.gcf().savefig(savefile)
         plt.close()
+
+    return thetas, phis, map
 
 
 def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, savefile=None):
@@ -262,7 +266,7 @@ def plot_mf_power_spectra(ll, mm, alms, freqs, config, savefile=None):
         plt.close(fig)
 
 
-def plot_mf_power_spectr_diff(ll, mm, alms, alms_rec, freqs, savefile=None):
+def plot_mf_power_spectr_diff(ll, mm, alms, alms_rec, freqs, savefile=None, vmin=1e-14, vmax=1e-10):
     alm_cube = np.array(alms)
     alm_rec_cube = np.array(alms_rec)
     ps_rec = []
@@ -275,19 +279,22 @@ def plot_mf_power_spectr_diff(ll, mm, alms, alms_rec, freqs, savefile=None):
     cbs = plotutils.ColorbarSetting(plotutils.ColorbarOutterPosition())
     extent = (min(ll), max(ll), min(freqs), max(freqs))
 
-    im_mappable = ax1.imshow(np.array(ps), aspect='auto', norm=plotutils.LogNorm(), extent=extent)
+    im_mappable = ax1.imshow(np.array(ps), aspect='auto', norm=plotutils.LogNorm(),
+                             vmin=vmin, vmax=vmax, extent=extent)
     cbs.add_colorbar(im_mappable, ax1)
     ax1.set_ylabel("Frequency")
     ax1.set_xlabel('l')
     ax1.set_title("Original power spectra")
 
-    im_mappable = ax2.imshow(np.array(ps_rec), aspect='auto', norm=plotutils.LogNorm(), extent=extent)
+    im_mappable = ax2.imshow(np.array(ps_rec), aspect='auto', norm=plotutils.LogNorm(),
+                             vmin=vmin, vmax=vmax, extent=extent)
     cbs.add_colorbar(im_mappable, ax2)
     ax2.set_ylabel("Frequency")
     ax2.set_xlabel('l')
     ax2.set_title("Recovered power spectra")
 
-    im_mappable = ax3.imshow(np.array(ps_rec) - np.array(ps), aspect='auto', extent=extent)
+    im_mappable = ax3.imshow(np.array(ps_rec) - np.array(ps), aspect='auto',
+                             extent=extent)
     cbs.add_colorbar(im_mappable, ax3)
     ax3.set_ylabel("Frequency")
     ax3.set_xlabel('l')
@@ -458,7 +465,7 @@ def compute_visibilities(alm, ll, mm, uphis, uthetas, lamb, trm):
     return V
 
 
-def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config, result_freq_dir):
+def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config):
 
     def get_dct_fct(m, t):
         if t == 'real' and m == 0:
@@ -479,10 +486,14 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config, result_fre
         for sel_block in [trm.m0_l_even, trm.lm_even, trm.lm_even]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
-                nk = int(np.ceil(n / float(config.dct_dl)))
-                dct_fct = get_dct_fct(m, 'real')
-                dct_blocks.append(dct_fct(n, nk))
-                dct_blocks_full.append(dct_fct(n, nk, nki=n))
+                if m > 1:
+                    nk = int(np.ceil(n / float(config.dct_dl)))
+                    dct_fct = get_dct_fct(m, 'real')
+                    dct_blocks.append(dct_fct(n, nk))
+                    dct_blocks_full.append(dct_fct(n, nk, nki=n))
+                else:
+                    dct_blocks.append(np.eye(n))
+                    dct_blocks_full.append(np.eye(n))
         # print time.time() - t
         # t = time.time()
         dct_real = block_diag(dct_blocks).tocsr()
@@ -495,10 +506,15 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config, result_fre
         for sel_block in [trm.m0_l_odd, trm.lm_odd, trm.lm_odd]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
-                nk = int(np.ceil(n / float(config.dct_dl)))
-                dct_fct = get_dct_fct(m, 'imag')
-                dct_blocks.append(dct_fct(n, nk))
-                dct_blocks_full.append(dct_fct(n, nk, nki=n))
+                if m > 1:
+                    nk = int(np.ceil(n / float(config.dct_dl)))
+                    dct_fct = get_dct_fct(m, 'imag')
+                    dct_blocks.append(dct_fct(n, nk))
+                    dct_blocks_full.append(dct_fct(n, nk, nki=n))
+                else:
+                    dct_blocks.append(np.eye(n))
+                    dct_blocks_full.append(np.eye(n))
+
         dct_imag = block_diag(dct_blocks).tocsr()
         dct_imag_full = block_diag(dct_blocks_full).tocsr()
 
@@ -766,7 +782,7 @@ def do_inversion(config, result_dir):
             uthetas, uphis, ru = sel_ylm[0].thetas, sel_ylm[0].phis, sel_ylm[0].rb / lamb
 
         alm_rec, Vrec, cov_error = alm_ml_inversion(sel_ll, sel_mm, Vobs, uphis, uthetas,
-                                                    lamb, trm, config, result_freq_dir)
+                                                    lamb, trm, config)
 
         alms_rec.append(alm_rec)
 

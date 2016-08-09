@@ -32,65 +32,6 @@ nputils.set_random_seed(10)
 ne.set_num_threads(NUM_POOL)
 
 
-class Vlm2VisTransMatrix(object):
-    ''' Object that encapsulate all the necessary steps to create the independents
-        transformation matrix that can be used to obtain independently the real
-        and imaginary part of the visibilities. Also have method to split and recombine
-        the vlm.
-
-        Example:
-        trm = Vlm2VisTransMatrix(ll, mm, ylm, jn)
-        vlm_r, vlm_i = trm.split(vlm)
-        Vreal = np.dot(vlm_r, trm.T_r.T)
-        Vimag = np.dot(vlm_i, trm.T_i.T)
-        vlm = trm.recombine(vlm_r, vlm_i)
-
-        '''
-
-    def __init__(self, ll, mm, ylm_set, jn_set):
-        self.lm_size = len(ll)
-
-        ylm_lm_even, ylm_m0_l_even, ylm_lm_odd, ylm_m0_l_odd = ylm_set
-        jn_lm_even, jn_m0_l_even, jn_lm_odd, jn_m0_l_odd = jn_set
-
-        self.m0_l_even = get_lm_selection_index(ll, mm, ylm_m0_l_even.ll, ylm_m0_l_even.mm, keep_order=True)
-        self.m0_l_odd = get_lm_selection_index(ll, mm, ylm_m0_l_odd.ll, ylm_m0_l_odd.mm, keep_order=True)
-        self.lm_even = get_lm_selection_index(ll, mm, ylm_lm_even.ll, ylm_lm_even.mm, keep_order=True)
-        self.lm_odd = get_lm_selection_index(ll, mm, ylm_lm_odd.ll, ylm_lm_odd.mm, keep_order=True)
-
-        self.ll_r = np.hstack((ylm_m0_l_even.ll, ylm_lm_even.ll, ylm_lm_even.ll))
-        self.mm_r = np.hstack((ylm_m0_l_even.mm, ylm_lm_even.mm, ylm_lm_even.mm))
-        self.T_r = np.vstack((ylm_m0_l_even.data.real * jn_m0_l_even.get_full(),
-                              2 * ylm_lm_even.data.real * jn_lm_even.get_full(),
-                              - 2 * ylm_lm_even.data.imag * jn_lm_even.get_full()))
-
-        self.ll_i = np.hstack((ylm_m0_l_odd.ll, ylm_lm_odd.ll, ylm_lm_odd.ll))
-        self.mm_i = np.hstack((ylm_m0_l_odd.mm, ylm_lm_odd.mm, ylm_lm_odd.mm))
-        self.T_i = np.vstack((ylm_m0_l_odd.data.real * jn_m0_l_odd.get_full(),
-                              2 * ylm_lm_odd.data.imag * jn_lm_odd.get_full(),
-                              2 * ylm_lm_odd.data.real * jn_lm_odd.get_full()))
-
-    def split(self, vlm):
-        ''' Split the vlm to be used to recover Re(V) and Im(V) independently'''
-        vlm_r = np.hstack((vlm.real[self.m0_l_even], vlm.real[self.lm_even], vlm.imag[self.lm_even]))
-        vlm_i = np.hstack((vlm.imag[self.m0_l_odd], vlm.real[self.lm_odd], vlm.imag[self.lm_odd]))
-
-        return (vlm_r, vlm_i)
-
-    def recombine(self, vlm_r, vlm_i):
-        ''' Recombine vlm_r and vlm_i to a full, complex vlm'''
-        split_r = (len(self.m0_l_even), len(self.m0_l_even) + len(self.lm_even))
-        split_i = (len(self.m0_l_odd), len(self.m0_l_odd) + len(self.lm_odd))
-
-        vlm = np.zeros(self.lm_size, dtype=np.complex)
-        vlm[self.m0_l_even] = vlm_r[:split_r[0]]
-        vlm[self.m0_l_odd] = 1j * vlm_i[:split_i[0]]
-        vlm[self.lm_even] = vlm_r[split_r[0]:split_r[1]] + 1j * vlm_r[split_r[1]:]
-        vlm[self.lm_odd] = vlm_i[split_i[0]:split_i[1]] + 1j * vlm_i[split_i[1]:]
-
-        return vlm
-
-
 class Alm2VisTransMatrix(object):
     ''' Object that encapsulate all the necessary steps to create the independents
         transformation matrix that can be used to obtain independently the real
@@ -133,10 +74,11 @@ class Alm2VisTransMatrix(object):
         print "Time T_r init %.2f s" % (time.time() - t)
         t = time.time()
 
-        jn = get_jn_fast_weave(ylm_m0_l_even.ll, ylm_m0_l_even.rb / lamb)
-        r = ylm_m0_l_even.data.real
-        self.T_r[:i1, :] = ne.evaluate('4 * pi * p_m0 * r * jn')
-        print "Time m0 %.2f s" % (time.time() - t)
+        if len(ylm_m0_l_even.ll) > 0:
+            jn = get_jn_fast_weave(ylm_m0_l_even.ll, ylm_m0_l_even.rb / lamb)
+            r = ylm_m0_l_even.data.real
+            self.T_r[:i1, :] = ne.evaluate('4 * pi * p_m0 * r * jn')
+            print "Time m0 %.2f s" % (time.time() - t)
 
         t = time.time()
         r = ylm_lm_even.data.real
@@ -163,9 +105,10 @@ class Alm2VisTransMatrix(object):
 
         self.T_i = np.zeros((len(self.ll_i), ylm_m0_l_even.data.shape[1]), order=order)
 
-        r = ylm_m0_l_odd.data.real
-        jn = get_jn_fast_weave(ylm_m0_l_odd.ll, ylm_m0_l_odd.rb / lamb)
-        self.T_i[:i1, :] = ne.evaluate('- 4 * pi * p_m0 * r * jn')
+        if len(ylm_m0_l_odd.ll) > 0:
+            r = ylm_m0_l_odd.data.real
+            jn = get_jn_fast_weave(ylm_m0_l_odd.ll, ylm_m0_l_odd.rb / lamb)
+            self.T_i[:i1, :] = ne.evaluate('- 4 * pi * p_m0 * r * jn')
 
         r = ylm_lm_odd.data.real
         i = ylm_lm_odd.data.imag
@@ -261,8 +204,13 @@ class AbstractCachedMatrix(object):
         self.name = name
         self.keep_in_mem = keep_in_mem
         self.compress = compress
+        self.h5_file = None
 
     def init_matrix(self):
+        if len(self.rows) == 0 or len(self.cols) == 0:
+            self.data = np.zeros((len(self.rows), len(self.cols)), dtype=self.dtype)
+            return
+
         atom = tables.Atom.from_dtype(self.dtype)
         hid = get_hash_list_np_array([self.rows, self.cols])
 
@@ -305,7 +253,8 @@ class AbstractCachedMatrix(object):
             self.data = self.h5_file.root.data
 
     def close(self):
-        self.h5_file.close()
+        if self.h5_file is not None:
+            self.h5_file.close()
 
 
 class GenericCachedMatrixMultiProcess(AbstractCachedMatrix, AbstractMatrix):
@@ -840,7 +789,7 @@ def polar_uv(rumin, rumax, nr, nphi, rnd_w=False, freqs_mhz=None, rnd_ru=False):
         uthetas = np.ones(nr * nphi) * np.pi / 2.
 
     for freq in freqs_mhz:
-        uphis = np.arange(0, 2 * np.pi, step=2 * np.pi / float(nphi))
+        uphis = 2 * np.pi * np.linspace(0, 1, num=nphi, endpoint=False)
         if rnd_ru:
             # r = nputils.get_random(int(freq)).uniform(rumin, rumax, nr)
             r = np.linspace(rumin, rumax, num=nr)
