@@ -6,6 +6,7 @@ import warnings
 import multiprocessing
 
 import numpy as np
+import pandas as pd
 
 import matplotlib.pyplot as plt
 from matplotlib.image import AxesImage
@@ -454,7 +455,7 @@ def get_out_lm_sampling(ll, mm, config):
     return ll, mm
 
 
-def compute_visibilities(alm, ll, mm, uphis, uthetas, lamb, trm):
+def compute_visibilities(alm, ll, mm, uphis, uthetas, i, trm):
     alm_r, alm_i = trm.split(alm)
     # t = time.time()
     V = np.dot(alm_r, trm.T_r) + 1j * np.dot(alm_i, trm.T_i)
@@ -463,7 +464,7 @@ def compute_visibilities(alm, ll, mm, uphis, uthetas, lamb, trm):
     return V
 
 
-def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config):
+def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
 
     def get_dct_fct(m, t):
         if t == 'real' and m == 0:
@@ -476,16 +477,21 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config):
             return config.dct_fct_i_m1
 
     if config.use_dct:
-        print "Building DCT Matrix ..."
         dct_blocks = []
         dct_blocks_full = []
+        if isinstance(config.dct_dl, (list, np.ndarray)):
+            dl = float(config.dct_dl[i])
+        else:
+            dl = float(config.dct_dl)
 
+        print "Using DCT with dl=%s" % dl
+        print "Building DCT Matrix ..."
         # t = time.time()
         for sel_block in [trm.m0_l_even, trm.lm_even, trm.lm_even]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
                 if m > config.dct_mmax_full_sample:
-                    nk = int(np.ceil(n / float(config.dct_dl)))
+                    nk = int(np.ceil(n / dl))
                     dct_fct = get_dct_fct(m, 'real')
                     dct_blocks.append(dct_fct(n, nk))
                     dct_blocks_full.append(dct_fct(n, nk, nki=n))
@@ -505,7 +511,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, lamb, trm, config):
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
                 if m > config.dct_mmax_full_sample:
-                    nk = int(np.ceil(n / float(config.dct_dl)))
+                    nk = int(np.ceil(n / dl))
                     dct_fct = get_dct_fct(m, 'imag')
                     dct_blocks.append(dct_fct(n, nk))
                     dct_blocks_full.append(dct_fct(n, nk, nki=n))
@@ -615,7 +621,8 @@ def load_alm(dirname):
     filename = os.path.join(dirname, 'alm.dat')
     print "Loading alm result from:", filename
 
-    a = np.loadtxt(filename)
+    # a = np.loadtxt(filename)
+    a = pd.read_csv(filename, delimiter=" ", header=None).values
 
     if a.shape[1] == 8:
         ll, mm, alm_real, alm_imag, alm_rec_real, alm_rec_imag, \
@@ -646,14 +653,15 @@ def load_visibilities(dirname):
     filename = os.path.join(dirname, 'visibilities.dat')
     print "Loading visibilities result from:", filename
 
-    a = np.loadtxt(filename)
+    # a = np.loadtxt(filename)
+    a = pd.read_csv(filename, delimiter=" ", header=None).values
 
     if a.shape[1] == 7:
-        ru, uphis, uthetas, Vobs_real, Vobs_imag, Vrec_real, Vrec_imag = np.loadtxt(filename).T
+        ru, uphis, uthetas, Vobs_real, Vobs_imag, Vrec_real, Vrec_imag = a.T
 
         return ru, uphis, uthetas, Vobs_real + 1j * Vobs_imag, Vrec_real + 1j * Vrec_imag
     elif a.shape[1] == 9:
-        ru, uphis, uthetas, V_real, V_imag, Vobs_real, Vobs_imag, Vrec_real, Vrec_imag = np.loadtxt(filename).T
+        ru, uphis, uthetas, V_real, V_imag, Vobs_real, Vobs_imag, Vrec_real, Vrec_imag = a.T
 
         return ru, uphis, uthetas, V_real + 1j * V_imag, Vobs_real + 1j * Vobs_imag, Vrec_real + 1j * Vrec_imag
     else:
@@ -698,6 +706,9 @@ def load_results_v2(dirname):
 
 def do_inversion(config, result_dir):
     nfreqs = len(config.freqs_mhz)
+
+    if config.use_dct and isinstance(config.dct_dl, (list, np.ndarray)):
+        assert len(config.dct_dl) == nfreqs, "Lenght of dct_dl should be the same as the number of frequencies"
 
     full_ll, full_mm, full_alms, fg_alms, eor_alms, beam_alm = simulate_sky(config)
     plot_sky_cart(full_alms[0], full_ll, full_mm, config.nside, theta_max=config.fwhm,
@@ -757,7 +768,7 @@ def do_inversion(config, result_dir):
         alm = inp_alms[i]
         # alm = alm - 2.6 * beam_alm
         print "\nBuilding visibilities..."
-        V = compute_visibilities(alm, inp_ll, inp_mm, uphis, uthetas, lamb, trm)
+        V = compute_visibilities(alm, inp_ll, inp_mm, uphis, uthetas, i, trm)
         # break
 
         Vobs = V + config.noiserms * np.random.randn(len(V)) + 1j * config.noiserms * np.random.randn(len(V))
@@ -780,7 +791,7 @@ def do_inversion(config, result_dir):
             uthetas, uphis, ru = sel_ylm[0].thetas, sel_ylm[0].phis, sel_ylm[0].rb / lamb
 
         alm_rec, Vrec, cov_error = alm_ml_inversion(sel_ll, sel_mm, Vobs, uphis, uthetas,
-                                                    lamb, trm, config)
+                                                    i, trm, config)
 
         alms_rec.append(alm_rec)
 
