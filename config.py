@@ -116,8 +116,12 @@ dct_dl = 5.
 # Modes m=0,1 are usually not well recovered with dct
 dct_mmax_full_sample = -1
 
+dct_dl_m0 = dct_dl
+
 # using psparse will be faster for ncore > 4, slower otherwise.
 use_psparse = True
+
+compute_alm_noise = True
 
 # =================================================================
 # General parameters

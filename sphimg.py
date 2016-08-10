@@ -478,49 +478,57 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
 
     if config.use_dct:
         dct_blocks = []
-        dct_blocks_full = []
+        # dct_blocks_full = []
         if isinstance(config.dct_dl, (list, np.ndarray)):
             dl = float(config.dct_dl[i])
+            dl_m0 = float(config.dct_dl_m0[i])
         else:
             dl = float(config.dct_dl)
+            dl_m0 = float(config.dct_dl_m0)
 
-        print "Using DCT with dl=%s" % dl
+        print "Using DCT with dl=%s and dl_m0=%s" % (dl, dl_m0)
         print "Building DCT Matrix ..."
         # t = time.time()
         for sel_block in [trm.m0_l_even, trm.lm_even, trm.lm_even]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
                 if m > config.dct_mmax_full_sample:
-                    nk = int(np.ceil(n / dl))
+                    if m == 0:
+                        nk = int(np.ceil(n / dl_m0))
+                    else:
+                        nk = int(np.ceil(n / dl))
                     dct_fct = get_dct_fct(m, 'real')
                     dct_blocks.append(dct_fct(n, nk))
-                    dct_blocks_full.append(dct_fct(n, nk, nki=n))
+                    # dct_blocks_full.append(dct_fct(n, nk, nki=n))
                 else:
                     dct_blocks.append(np.eye(n))
-                    dct_blocks_full.append(np.eye(n))
+                    # dct_blocks_full.append(np.eye(n))
         # print time.time() - t
         # t = time.time()
         dct_real = block_diag(dct_blocks).tocsr()
-        dct_real_full = block_diag(dct_blocks_full).tocsr()
+        # dct_real_full = block_diag(dct_blocks_full).tocsr()
         # print time.time() - t
 
         dct_blocks = []
-        dct_blocks_full = []
+        # dct_blocks_full = []
 
         for sel_block in [trm.m0_l_odd, trm.lm_odd, trm.lm_odd]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
                 if m > config.dct_mmax_full_sample:
-                    nk = int(np.ceil(n / dl))
+                    if m == 0:
+                        nk = int(np.ceil(n / dl_m0))
+                    else:
+                        nk = int(np.ceil(n / dl))
                     dct_fct = get_dct_fct(m, 'imag')
                     dct_blocks.append(dct_fct(n, nk))
-                    dct_blocks_full.append(dct_fct(n, nk, nki=n))
+                    # dct_blocks_full.append(dct_fct(n, nk, nki=n))
                 else:
                     dct_blocks.append(np.eye(n))
-                    dct_blocks_full.append(np.eye(n))
+                    # dct_blocks_full.append(np.eye(n))
 
         dct_imag = block_diag(dct_blocks).tocsr()
-        dct_imag_full = block_diag(dct_blocks_full).tocsr()
+        # dct_imag_full = block_diag(dct_blocks_full).tocsr()
 
         print "Computing dot products of T and DCT ..."
         # print dct_real.nnz, dct_real.shape
@@ -556,30 +564,31 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
     X_r_dot_C_Dinv = C_Dinv.T.dot(X_r).T
     lhs_r = np.dot(X_r_dot_C_Dinv, X_r) + np.eye(X_r.shape[1]) * config.reg_lambda
     rhs_r = np.dot(X_r_dot_C_Dinv, Vobs.real)
-    print "Done in %.2f s" % (time.time() - t)
 
     X_i_dot_C_Dinv = C_Dinv.T.dot(X_i).T
     lhs_i = np.dot(X_i_dot_C_Dinv, X_i) + np.eye(X_i.shape[1]) * config.reg_lambda
     rhs_i = np.dot(X_i_dot_C_Dinv, Vobs.imag)
+    print "Done in %.2f s" % (time.time() - t)
 
     print "Building covariance matrix ...",
-    t = time.time()
-    lhs_r_err_1 = np.linalg.inv(lhs_r)
-    lhs_r_err_2 = np.dot(X_r_dot_C_Dinv, X_r)
-    cov_error_r = np.sqrt(np.diag(np.dot(np.dot(lhs_r_err_2, lhs_r_err_1), lhs_r_err_1)))
+    # t = time.time()
+    # lhs_r_err_1 = np.linalg.inv(lhs_r)
+    # lhs_r_err_2 = np.dot(X_r_dot_C_Dinv, X_r)
+    # cov_error_r = np.sqrt(np.diag(np.dot(np.dot(lhs_r_err_2, lhs_r_err_1), lhs_r_err_1)))
 
-    lhs_i_err_1 = np.linalg.inv(lhs_i)
-    lhs_i_err_2 = np.dot(X_i_dot_C_Dinv, X_i)
-    cov_error_i = np.sqrt(np.diag(np.dot(np.dot(lhs_i_err_2, lhs_i_err_1), lhs_i_err_1)))
+    # lhs_i_err_1 = np.linalg.inv(lhs_i)
+    # lhs_i_err_2 = np.dot(X_i_dot_C_Dinv, X_i)
+    # cov_error_i = np.sqrt(np.diag(np.dot(np.dot(lhs_i_err_2, lhs_i_err_1), lhs_i_err_1)))
 
-    if config.use_dct:
-        # cov_error_r = np.dot(np.dot(cov_error_r, dct_real.T), dct_real_full)\
-        # print cov_error_r.shape, dct_real.shape, dct_real_full.shape, dct_real.dot(cov_error_r.T).shape
-        cov_error_r = dct_real_full.T.dot(dct_real.dot(cov_error_r.T)).T
-        # cov_error_i = np.dot(np.dot(cov_error_i, dct_imag.T), dct_imag_full)
-        cov_error_i = dct_imag_full.T.dot(dct_imag.dot(cov_error_i.T)).T
+    # if config.use_dct:
+    #     # cov_error_r = np.dot(np.dot(cov_error_r, dct_real.T), dct_real_full)\
+    #     # print cov_error_r.shape, dct_real.shape, dct_real_full.shape, dct_real.dot(cov_error_r.T).shape
+    #     cov_error_r = dct_real_full.T.dot(dct_real.dot(cov_error_r.T)).T
+    #     # cov_error_i = np.dot(np.dot(cov_error_i, dct_imag.T), dct_imag_full)
+    #     cov_error_i = dct_imag_full.T.dot(dct_imag.dot(cov_error_i.T)).T
 
-    cov_error = np.abs(trm.recombine(cov_error_r, cov_error_i))
+    # cov_error = np.abs(trm.recombine(cov_error_r, cov_error_i))
+    cov_error = np.zeros_like(ll)
     print "Done in %.2f s" % (time.time() - t)
 
     print '\nStarting CG inversion for the real visibilities ...'
@@ -601,20 +610,38 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
     alm_rec = trm.recombine(alm_rec_r, alm_rec_i)
     Vrec = np.dot(alm_rec_r, trm.T_r) + 1j * np.dot(alm_rec_i, trm.T_i)
 
-    return alm_rec, Vrec, cov_error
+    if config.compute_alm_noise:
+        print '\nComputing alm noise ...',
+        start = time.time()
+        rhs_noise_r = np.dot(X_r_dot_C_Dinv, config.noiserms * np.random.randn(len(Vobs)))
+        rhs_noise_i = np.dot(X_i_dot_C_Dinv, config.noiserms * np.random.randn(len(Vobs)))
+
+        alm_rec_noise_r, info = cg(lhs_r, rhs_noise_r, tol=config.cg_tol, maxiter=config.cg_maxiter)
+        alm_rec_noise_i, info = cg(lhs_i, rhs_noise_i, tol=config.cg_tol, maxiter=config.cg_maxiter)
+
+        if config.use_dct:
+            alm_rec_noise_r = (dct_real.dot(alm_rec_noise_r.T)).T  # np.dot(alm_rec_r, dct_real.T)
+            alm_rec_noise_i = (dct_imag.dot(alm_rec_noise_i.T)).T  # np.dot(alm_rec_i, dct_imag.T)
+        alm_rec_noise = trm.recombine(alm_rec_noise_r, alm_rec_noise_i)
+        print 'Done in %.2f s.' % (time.time() - start)
+    else:
+        alm_rec_noise = np.zeros_like(alm_rec)
+
+    return alm_rec, alm_rec_noise, Vrec, cov_error
 
 
 def get_config(dirname):
     return imp.load_source('config', os.path.join(dirname, 'config.py'))
 
 
-def save_alm(dirname, ll, mm, alm, alm_fg, alm_eor, alm_rec, cov_error):
+def save_alm(dirname, ll, mm, alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error):
     filename = os.path.join(dirname, 'alm.dat')
     print "Saving alm result to:", filename
 
     np.savetxt(filename, np.array([ll, mm, alm.real, alm.imag, alm_fg.real, alm_fg.imag,
                                    alm_eor.real, alm_eor.imag, alm_rec.real, alm_rec.imag,
-                                   cov_error.real, cov_error.imag]).T)
+                                   alm_rec_noise.real, alm_rec_noise.imag, cov_error.real,
+                                   cov_error.imag]).T)
 
 
 def load_alm(dirname):
@@ -637,6 +664,14 @@ def load_alm(dirname):
         return ll, mm, alm_real + 1j * alm_imag, alm_fg_real + 1j * alm_fg_imag, \
             alm_eor_real + 1j * alm_eor_imag, alm_rec_real + 1j * alm_rec_imag, \
             cov_error_real + 1j * cov_error_imag
+    elif a.shape[1] == 14:
+        ll, mm, alm_real, alm_imag, alm_fg_real, alm_fg_imag, alm_eor_real, alm_eor_imag, \
+            alm_rec_real, alm_rec_imag, alm_rec_noise_real, alm_rec_noise_imag, \
+            cov_error_real, cov_error_imag = a.T
+
+        return ll, mm, alm_real + 1j * alm_imag, alm_fg_real + 1j * alm_fg_imag, \
+            alm_eor_real + 1j * alm_eor_imag, alm_rec_real + 1j * alm_rec_imag, \
+            alm_rec_noise_real + 1j * alm_rec_noise_imag, cov_error_real + 1j * cov_error_imag
     else:
         print "Format not understood"
 
@@ -704,8 +739,29 @@ def load_results_v2(dirname):
     return ll.astype(int), mm.astype(int), alm, alm_fg, alm_eor, alm_rec, cov_error, ru, uphis, uthetas, V, Vobs, Vrec
 
 
+def load_results_v3(dirname):
+    if not os.path.exists(dirname):
+        print "Path does not exists:", dirname
+        return
+
+    print "loading result from %s ..." % dirname
+    key_fct = lambda a: int(a.split('_')[-1])
+    freq_res = []
+    for freq_dir in sorted(glob.glob(os.path.join(dirname, 'freq_*')), key=key_fct):
+        ll, mm, alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error = load_alm(freq_dir)
+        ru, uphis, uthetas, V, Vobs, Vrec = load_visibilities(freq_dir)
+        freq_res.append([alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error, ru, uphis, uthetas, V, Vobs, Vrec])
+
+    alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error, ru, uphis, uthetas, V, Vobs, Vrec = zip(*freq_res)
+
+    return ll.astype(int), mm.astype(int), alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error, \
+        ru, uphis, uthetas, V, Vobs, Vrec
+
+
 def do_inversion(config, result_dir):
     nfreqs = len(config.freqs_mhz)
+
+    assert len(config.freqs_mhz) == len(config.cl_freq)
 
     if config.use_dct and isinstance(config.dct_dl, (list, np.ndarray)):
         assert len(config.dct_dl) == nfreqs, "Lenght of dct_dl should be the same as the number of frequencies"
@@ -790,15 +846,17 @@ def do_inversion(config, result_dir):
 
             uthetas, uphis, ru = sel_ylm[0].thetas, sel_ylm[0].phis, sel_ylm[0].rb / lamb
 
-        alm_rec, Vrec, cov_error = alm_ml_inversion(sel_ll, sel_mm, Vobs, uphis, uthetas,
-                                                    i, trm, config)
+        alm_rec, alm_rec_noise, Vrec, cov_error = alm_ml_inversion(sel_ll, sel_mm, Vobs, uphis, uthetas,
+                                                                   i, trm, config)
 
         alms_rec.append(alm_rec)
 
-        save_alm(result_freq_dir, sel_ll, sel_mm, sel_alm, fg_alms[i][idx], eor_alms[i][idx], alm_rec, cov_error)
+        save_alm(result_freq_dir, sel_ll, sel_mm, sel_alm, fg_alms[i][idx],
+                 eor_alms[i][idx], alm_rec, alm_rec_noise, cov_error)
         save_visibilities(result_freq_dir, ru, uphis, uthetas, V, Vobs, Vrec)
 
         vlm_rec = util.alm2vlm(alm_rec, sel_ll)
+        vlm_rec_noise = util.alm2vlm(alm_rec_noise, sel_ll)
 
         print "Plotting result"
         # plot vlm vs vlm_rec
@@ -816,6 +874,9 @@ def do_inversion(config, result_dir):
         # plot vlm diff
         plot_pool.apply_async(plot_vlm_diff, (sel_ll, sel_mm, sel_vlm, vlm_rec,
                                               os.path.join(result_freq_dir, 'vlm_minus_vlm_rec.pdf')))
+
+        plot_pool.apply_async(plot_vlm_diff, (sel_ll, sel_mm, np.zeros_like(vlm_rec), vlm_rec_noise,
+                                              os.path.join(result_freq_dir, 'vlm_minus_vlm_noise.pdf')))
 
         # plot visibilities diff
         plot_pool.apply_async(plot_vis_diff, (ru, V, Vobs, Vrec, os.path.join(result_freq_dir,
