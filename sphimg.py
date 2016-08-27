@@ -849,6 +849,7 @@ def do_inversion(config, result_dir):
         V = compute_visibilities(alm, inp_ll, inp_mm, uphis, uthetas, i, trm)
         # break
 
+        np.random.seed(None)
         Vobs = V + config.noiserms * np.random.randn(len(V)) + 1j * config.noiserms * np.random.randn(len(V))
 
         # plotting the visibilities

@@ -1142,7 +1142,7 @@ def distance_from_border(point, shape):
 
 def save_object(object, filename, dir=DATA_DIR):
     ''' DEPRECATED '''
-    if not os.path.exists(DATA_DIR):
+    if not os.path.exists(dir):
         os.makedirs(dir)
 
     path = os.path.abspath(os.path.join(dir, filename + '.data'))
