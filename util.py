@@ -77,7 +77,7 @@ class Alm2VisTransMatrix(object):
         if len(ylm_m0_l_even.ll) > 0:
             jn = get_jn_fast_weave(ylm_m0_l_even.ll, ylm_m0_l_even.rb / lamb)
             r = ylm_m0_l_even.data.real
-            self.T_r[:i1, :] = ne.evaluate('4 * pi * p_m0 * r * jn')
+            ne.evaluate('4 * pi * p_m0 * r * jn', out=self.T_r[:i1, :])
             print "Time m0 %.2f s" % (time.time() - t)
 
         t = time.time()
@@ -87,11 +87,11 @@ class Alm2VisTransMatrix(object):
         print "Time jn %.2f s" % (time.time() - t)
 
         t = time.time()
-        self.T_r[i1:i1 + i2, :] = ne.evaluate('4 * pi * p_mp * 2 * r * jn')
+        ne.evaluate('4 * pi * p_mp * 2 * r * jn', out=self.T_r[i1:i1 + i2, :])
         print "Time ev1 %.2f s" % (time.time() - t)
 
         t = time.time()
-        self.T_r[i1 + i2:i1 + i2 + i2, :] = ne.evaluate('4 * pi * p_mp * -2 * i * jn')
+        ne.evaluate('4 * pi * p_mp * -2 * i * jn', out=self.T_r[i1 + i2:i1 + i2 + i2, :])
         print "Time ev2 %.2f s" % (time.time() - t)
 
         self.ll_i = np.hstack((ylm_m0_l_odd.ll, ylm_lm_odd.ll, ylm_lm_odd.ll))
@@ -108,14 +108,14 @@ class Alm2VisTransMatrix(object):
         if len(ylm_m0_l_odd.ll) > 0:
             r = ylm_m0_l_odd.data.real
             jn = get_jn_fast_weave(ylm_m0_l_odd.ll, ylm_m0_l_odd.rb / lamb)
-            self.T_i[:i1, :] = ne.evaluate('- 4 * pi * p_m0 * r * jn')
+            ne.evaluate('- 4 * pi * p_m0 * r * jn', out=self.T_i[:i1, :])
 
         r = ylm_lm_odd.data.real
         i = ylm_lm_odd.data.imag
         jn = get_jn_fast_weave(ylm_lm_odd.ll, ylm_lm_odd.rb / lamb)
 
-        self.T_i[i1:i1 + i2, :] = ne.evaluate('-4 * pi * p_mp * 2 * r * jn')
-        self.T_i[i1 + i2:i1 + i2 + i2, :] = ne.evaluate('-4 * pi * p_mp * -2 * i * jn')
+        ne.evaluate('-4 * pi * p_mp * 2 * r * jn', out=self.T_i[i1:i1 + i2, :])
+        ne.evaluate('-4 * pi * p_mp * -2 * i * jn', out=self.T_i[i1 + i2:i1 + i2 + i2, :])
 
     def split(self, alm):
         ''' Split the alm to be used to recover Re(V) and Im(V) independently'''
@@ -638,6 +638,20 @@ def get_power_spectra(alm, ll, mm):
     return np.array([np.sum(np.abs(alm[ll == l]) ** 2) / (2 * l) for l in l_uniq])
 
 
+def get_2d_power_spectra(alms, ll, mm, freqs, ft=False):
+    alm_cube = np.array(alms)
+    ps = []
+    for i in range(alm_cube.shape[0]):
+        ps.append(get_power_spectra(alm_cube[i], ll, mm))
+
+    ps = np.array(ps)
+
+    if ft:
+        ps = abs(np.fft.fft(ps, axis=0))
+
+    return ps
+
+
 def sph2cart(theta, phi, r=None):
     """Convert spherical coordinates to 3D cartesian
     theta, phi, and r must be the same size and shape, if no r is provided
@@ -878,8 +892,8 @@ def alm2vlm(alm, ll):
     return 4 * np.pi * alm * (-1j) ** ll
 
 
-def get_alm2vis_matrix(ll, mm, ylm, jn, order='C'):
-    return Alm2VisTransMatrix(ll, mm, ylm, jn, order=order)
+def get_alm2vis_matrix(ll, mm, ylm_set, lamb, order='C'):
+    return Alm2VisTransMatrix(ll, mm, ylm_set, lamb, order=order)
 
 
 def get_hash_np_array(array):
@@ -918,6 +932,20 @@ def test_alm2vis():
     vis2 = np.dot(alm_r, tr2.T_r) + 1j * np.dot(alm_i, tr2.T_i)
 
     print np.allclose(vis1, vis2)
+
+
+def progress_report(n):
+    t = time.time()
+
+    def report(i):
+        print "\r",
+        eta = ""
+        if i > 0:
+            remaining = (np.round((time.time() - t) / float(i) * (n - i)))
+            eta = " (ETA: %s)" % time.strftime("%H:%M:%S", time.localtime(time.time() + remaining))
+        print "Progress: %s / %s%s" % (i + 1, n, eta),
+
+    return report
 
 
 def test_uv_cov():
@@ -960,7 +988,7 @@ def test_uv_cov():
 
     # freqs = np.arange(110, 130, 5)
     freqs = [150.]
-    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 0, 120, 200, min_max_is_baselines=False)
+    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 20, 250, 200, min_max_is_baselines=False)
     plt.figure()
     colors = plotutils.ColorSelector()
     uphis = []

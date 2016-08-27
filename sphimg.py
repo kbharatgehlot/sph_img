@@ -214,6 +214,28 @@ def plot_vlm_vs_vlm_rec_map(sel_ll, sel_mm, sel_vlm, vlm_rec, cov_error,
         plt.close(fig)
 
 
+def plot_2d_power_spectra(ll, mm, alms, freqs, config, savefile=None, vmin=1e-14, vmax=1e-10, ft=False):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ps = util.get_2d_power_spectra(alms, ll, mm, freqs, ft=ft)
+
+    cbs = plotutils.ColorbarSetting(plotutils.ColorbarOutterPosition())
+    extent = (min(ll), max(ll), min(freqs), max(freqs))
+
+    im_mappable = ax.imshow(np.array(ps), aspect='auto', norm=plotutils.LogNorm(),
+                            vmin=vmin, vmax=vmax, extent=extent)
+    cbs.add_colorbar(im_mappable, ax)
+    ax.set_ylabel("Frequency")
+    ax.set_xlabel('l')
+    ax.set_title("Power spectra")
+
+    if savefile is not None:
+        fig.savefig(savefile)
+        plt.close(fig)
+
+    return np.array(ps), ax
+
+
 def plot_power_sepctra(ll, mm, alm, sel_ll, sel_mm, alm_rec, savefile=None):
     # TODO: check the normalization here!
     l_sampled = np.arange(max(sel_ll) + 1)[np.bincount(sel_ll) > 0]
@@ -570,7 +592,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
     rhs_i = np.dot(X_i_dot_C_Dinv, Vobs.imag)
     print "Done in %.2f s" % (time.time() - t)
 
-    print "Building covariance matrix ...",
+    # print "Building covariance matrix ...",
     # t = time.time()
     # lhs_r_err_1 = np.linalg.inv(lhs_r)
     # lhs_r_err_2 = np.dot(X_r_dot_C_Dinv, X_r)
@@ -589,7 +611,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
 
     # cov_error = np.abs(trm.recombine(cov_error_r, cov_error_i))
     cov_error = np.zeros_like(ll)
-    print "Done in %.2f s" % (time.time() - t)
+    # print "Done in %.2f s" % (time.time() - t)
 
     print '\nStarting CG inversion for the real visibilities ...'
     start = time.time()
