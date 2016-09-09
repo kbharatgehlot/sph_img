@@ -21,6 +21,10 @@ from scipy.interpolate import RectBivariateSpline
 import numexpr as ne
 from scipy import weave
 
+from scipy import signal
+from scipy import interpolate
+
+
 import Ylm
 
 LOFAR_STAT_POS = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'statpos.data')
@@ -308,25 +312,26 @@ class YlmCachedMatrix(AbstractCachedMatrix, AbstractMatrix):
 
 class YlmChunck(object):
 
-    def __init__(self, ll, mm, phis, thetas, rb, data):
+    def __init__(self, ll, mm, phis, thetas, rb, sort_idx_cols, data):
         self.ll = ll
         self.mm = mm
         self.phis = phis
         self.thetas = thetas
         self.rb = rb
         self.data = data
+        self.sort_idx_cols = sort_idx_cols
 
 
 class YlmIndexedCachedMatrix(AbstractCachedMatrix, AbstractIndexedMatrix):
 
     def __init__(self, ll, mm, phis, thetas, rb, cache_dir, dtype=np.dtype(np.complex128),
                  force_build=False, keep_in_mem=False, compress=None):
-        sort_idx_cols = nputils.sort_index(rb)
+        self.sort_idx_cols = nputils.sort_index(rb)
         self.ll = ll
         self.mm = mm
-        self.phis = phis[sort_idx_cols]
-        self.thetas = thetas[sort_idx_cols]
-        self.rb = rb[sort_idx_cols]
+        self.phis = phis[self.sort_idx_cols]
+        self.thetas = thetas[self.sort_idx_cols]
+        self.rb = rb[self.sort_idx_cols]
         rows = int_pairing(self.ll, self.mm)
         cols = real_pairing(self.phis, self.thetas)
 
@@ -348,7 +353,8 @@ class YlmIndexedCachedMatrix(AbstractCachedMatrix, AbstractIndexedMatrix):
         idx_col, data = AbstractIndexedMatrix.get_chunk(self, bmin, bmax)
 
         return YlmChunck(self.ll, self.mm, self.phis[idx_col],
-                         self.thetas[idx_col], self.rb[idx_col], data)
+                         self.thetas[idx_col], self.rb[idx_col],
+                         self.sort_idx_cols[idx_col], data)
 
     def get(self, ll, mm, phis, thetas):
         rows = int_pairing(ll, mm)
@@ -611,13 +617,17 @@ def alm2map(alm, ll, mm, thetas, phis):
     return a + b
 
 
+def get_full_alm(alm, ll, mm):
+    full_ll, full_mm = get_lm(max(ll))
+    full_alm = np.zeros_like(full_ll, dtype=alm.dtype)
+    idx = get_lm_selection_index(full_ll, full_mm, ll, mm)
+    full_alm[idx] = alm
+    return full_alm
+
+
 def fast_alm2map(alm, ll, mm, nside):
     if hp.Alm.getsize(max(ll)) != len(alm):
-        full_ll, full_mm = get_lm(max(ll))
-        full_alm = np.zeros_like(full_ll, dtype=alm.dtype)
-        idx = get_lm_selection_index(full_ll, full_mm, ll, mm)
-        full_alm[idx] = alm
-        alm = full_alm
+        alm = get_full_alm(alm, ll, mm)
 
     return hp.alm2map(alm, nside, verbose=False)
 
@@ -884,6 +894,136 @@ def lofar_uv(freqs_mhz, dec_deg, hal, har, umin, umax, timeres, include_conj=Tru
     return np.array(uu), np.array(vv), np.array(ww)
 
 
+def griduvw_vis(u, v, w, vis, Nud, Nvd, Wslice, convxwn, convywn, beta):
+    Wmin = min(w)
+    Wmax = max(w)
+    index = np.argsort(w)
+    wa = [w[i] for i in index]  # sorted in ascending order
+    print '\nMin w value = %s Max w value =%s\n' % (Wmin, Wmax)
+    wr = np.linspace(Wmin, Wmax, Wslice)
+    print '\nW ranges::\n'
+    print wr
+
+    ####################
+
+    print '\nGriding starts::\n'
+    base = 0
+    Totalgridbase = 0
+    nb = len(u)
+    print '\nTotal no of baselines %s\n' % (nb)
+    delUx = (2. * max(u)) / Nud
+    delVy = (2. * max(v)) / Nvd
+    window = signal.kaiser(np.round(convxwn), beta)
+    xval = np.arange(0, np.round(convxwn), 1)
+    tck = interpolate.splrep(xval, window, s=0)
+
+    visamat = []
+    umat = []
+    vmat = []
+    wmat = []
+
+    for ws in range(Wslice):
+        countw = 0
+        vismat = np.zeros((Nud, Nvd), dtype=complex)
+        ug = np.zeros((Nud, Nvd), dtype=np.float)
+        vg = np.zeros((Nud, Nvd), dtype=np.float)
+        wg = np.zeros((Nud, Nvd), dtype=np.float)
+        countgwt = np.zeros((Nud, Nvd), dtype=np.float)
+        countg = np.zeros((Nud, Nvd), dtype=np.int)
+        # print 'Slice no is %s\n' %(ws)
+
+        for ii in range(base, nb):
+            if (wa[ii] >= wr[ws] and wa[ii] <= wr[ws + 1]):
+                # print '\nBaselines are choosen within slice %s to %s\n' %(ws, ws+1)
+                Uval = u[index[ii]]
+                Vval = v[index[ii]]
+                Wval = wa[ii]
+                base = base + 1
+                countw = countw + 1
+
+                if(Uval > 0. and Vval > 0.):
+                    uxg = int((Nud + 1) / 2 + np.round(Uval / delUx))
+                    if uxg >= Nud:
+                        uxg = Nud - 1
+                    uyg = int((Nvd + 1) / 2 + np.round(Vval / delVy))
+                    if uyg >= Nvd:
+                        uyg = Nvd - 1
+                if(Uval < 0. and Vval > 0.):
+                    uxg = int((Nud + 1) / 2 - np.round(np.abs(Uval) / delUx))
+                    if uxg <= 0:
+                        uxg = 0
+                    uyg = int((Nvd + 1) / 2 + np.round(Vval / delVy))
+                    if uyg >= Nvd:
+                        uyg = Nvd - 1
+                if(Uval < 0. and Vval < 0.):
+                    uxg = int((Nud + 1) / 2 - np.round(np.abs(Uval) / delUx))
+                    if uxg <= 0:
+                        uxg = 0
+                    uyg = int((Nvd + 1) / 2 - np.round(np.abs(Vval) / delVy))
+                    if uyg <= 0:
+                        uyg = 0
+                if(Uval > 0. and Vval < 0.):
+                    uxg = int((Nud + 1) / 2 + np.round(Uval / delUx))
+                    if uxg >= Nud:
+                        uxg = Nud - 1
+                    uyg = int((Nvd + 1) / 2 - np.round(np.abs(Vval) / delVy))
+                    if uyg <= 0:
+                        uyg = 0
+                if(np.abs((uxg - Nud / 2) * delUx - Uval) <= 1. * convxwn and
+                        np.abs((uyg - Nvd / 2) * delVy - Vval) <= 1. * convywn):
+
+                    uvgdiffx = np.abs((uxg - Nud / 2) * delUx - Uval)
+                    uvgdiffy = np.abs((uyg - Nvd / 2) * delVy - Vval)
+                    wtx = interpolate.splev(np.round(uvgdiffx / delUx), tck, der=0)
+                    wty = interpolate.splev(np.round(uvgdiffy / delVy), tck, der=0)
+                    # print wtx, wty
+                    wt = wtx * wty
+                    if(wt < 0. or wt == 0):
+                        print '\nWt is negative or zero\n'
+
+                    vismat[uxg, uyg] = vismat[uxg, uyg] + wt * vis[index[ii]]
+                    countgwt[uxg, uyg] = countgwt[uxg, uyg] + wt
+                    countg[uxg, uyg] = countg[uxg, uyg] + 1
+                    ug[uxg, uyg] = ug[uxg, uyg] + wt * Uval
+                    vg[uxg, uyg] = vg[uxg, uyg] + wt * Vval
+                    wg[uxg, uyg] = Wval
+
+        count = 0
+        for ii in range(Nud):
+            for jj in range(Nvd):
+                if(countgwt[ii, jj] > 0.):
+                    count = count + 1
+
+        # print '\nNumber of filled grid points %s\n' %(count)
+
+        # Normalize
+        vismatn = np.zeros((count + 1,), dtype=complex)
+        ugn = np.zeros((count + 1,), dtype=np.float)
+        vgn = np.zeros((count + 1,), dtype=np.float)
+        wgn = np.zeros((count + 1,), dtype=np.float)
+
+        count = 0
+        for ii in range(Nud):
+            for jj in range(Nvd):
+                if(countgwt[ii, jj] > 0.):
+                    count = count + 1
+                    vismatn[count] = vismat[ii, jj] / countgwt[ii, jj]
+                    ugn[count] = ug[ii, jj] / countgwt[ii, jj]
+                    vgn[count] = vg[ii, jj] / countgwt[ii, jj]
+                    wgn[count] = wg[ii, jj] / countg[ii, jj]  # only avg; not weighted avg
+
+        Totalgridbase = Totalgridbase + countw
+
+        visamat = np.append(visamat, vismatn)
+        umat = np.append(umat, ugn)
+        vmat = np.append(vmat, vgn)
+        wmat = np.append(wmat, wgn)
+
+    print '\nNumber of gridded baselines %s :: Base-GridBase = %s\n' % (Totalgridbase, nb - Totalgridbase)
+
+    return umat, vmat, wmat, visamat
+
+
 def vlm2alm(vlm, ll):
     return vlm / (4 * np.pi * (-1j) ** ll)
 
@@ -944,6 +1084,8 @@ def progress_report(n):
             remaining = (np.round((time.time() - t) / float(i) * (n - i)))
             eta = " (ETA: %s)" % time.strftime("%H:%M:%S", time.localtime(time.time() + remaining))
         print "Progress: %s / %s%s" % (i + 1, n, eta),
+        if i == n - 1:
+            print ""
 
     return report
 
@@ -1273,11 +1415,29 @@ def test_ylm_set():
 
     ylm_set.close()
 
+
+def test_gridding():
+    import matplotlib.pyplot as plt
+
+    uu, vv, ww = lofar_uv([150], 90, -6, 6, 30, 250, 200)
+    uu = uu[0]
+    vv = vv[0]
+    ww = ww[0]
+    vis = np.random.randn(len(uu))
+    uug, vvg, wwg, visamat = griduvw_vis(uu, vv, ww, vis, 130, 130, 10, 1 / 0.07, 1 / 0.07, 8.6)
+
+    print len(uu)
+    print len(uug)
+    plt.scatter(uug, vvg, marker='+', s=5)
+    plt.show()
+
+
+
 if __name__ == '__main__':
     # test_cached_matrix()
     # test_cached_mp_matrix()
     # test_cached_ylm()
-    test_uv_cov()
+    # test_uv_cov()
     # test_lm_index()
     # test_ylm_precision()
     # test_pairing()
@@ -1286,3 +1446,4 @@ if __name__ == '__main__':
     # test_index_matrix()
     # test_ylm_index_matrix()
     # test_ylm_set()
+    test_gridding()

@@ -25,6 +25,9 @@ inp_dm = 1
 inp_dl = 1
 inp_mmax_strip = True
 
+# When W=0, we can not recover odd l+m modes
+inp_lm_even_only = False
+
 # The angular power spectrum profile
 cl = (np.arange(lmax + 1) + 1) ** -2.
 
@@ -83,6 +86,9 @@ out_mmax = lmax
 out_mmin = 0
 out_lmin = inp_lmin
 out_dm = 1
+
+# When W=0, we can not recover odd l+m modes
+out_lm_even_only = False
 
 # You might want to use out_dl = np.ceil(np.pi / out_theta_max)
 out_dl = 1

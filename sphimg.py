@@ -429,6 +429,11 @@ def sample_input_alm(config, alms, ll, mm):
     if config.inp_mmax_strip:
         ll_inp, mm_inp = util.strip_mm(ll_inp, mm_inp, lambda l: np.sin(theta_max) * l)
 
+    if config.inp_lm_even_only:
+        idx = np.logical_not(util.is_odd(ll_inp + mm_inp)).astype(bool)
+        ll_inp = ll_inp[idx]
+        mm_inp = mm_inp[idx]
+
     idx = util.get_lm_selection_index(ll, mm, ll_inp, mm_inp)
     alms = [alm[idx] for alm in alms]
 
@@ -473,6 +478,11 @@ def get_out_lm_sampling(ll, mm, config):
 
     if config.out_mmax_strip:
         ll, mm = util.strip_mm(ll, mm, lambda l: np.sin(theta_max) * l)
+
+    if config.out_lm_even_only:
+        idx = np.logical_not(util.is_odd(ll + mm)).astype(bool)
+        ll = ll[idx]
+        mm = mm[idx]
 
     return ll, mm
 
