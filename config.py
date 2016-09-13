@@ -69,6 +69,11 @@ polar_nphi = 50.
 polar_rnd_w = True
 polar_rnd_ru = True
 
+# cartesian: Cartesian u,v grid. rumax should be of the order of lmax / 2pi.
+# n is 2 * umax / du.
+cart_du = 1.
+cart_rnd_w = True
+
 # umax should be of the order of lmax / 2pi.
 lofar_freq_mhz = 150
 lofar_dec_deg = 90

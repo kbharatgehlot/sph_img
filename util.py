@@ -754,38 +754,32 @@ def tophat_beam(thetas, width):
     return (thetas <= width / 2.)
 
 
-def cart_uv(umax, n, rnd_w=False, freqs_mhz=None):
-    u = np.linspace(-umax, umax, n)
-    v = np.linspace(-umax, umax, n)
+def cart_uv(rumin, rumax, du, rnd_w=False, freqs_mhz=None):
+    n = np.ceil(2 * rumax / du)
+    u = du * np.arange(-n / 2, n / 2)
+    v = du * np.arange(-n / 2, n / 2)
     uu, vv = np.meshgrid(u, v)
+    uu = uu.flatten()
+    vv = vv.flatten()
+
+    ru = np.sqrt(uu ** 2 + vv ** 2)
+
+    idx = (ru > rumin) & (ru < rumax)
+
+    uu = uu[idx]
+    vv = vv[idx]
 
     if rnd_w:
         uthetas = np.pi / 4. + nputils.get_random().rand(*uu.shape) * np.pi / 2.
         ww = np.sqrt(uu ** 2 + vv ** 2) * np.tan(uthetas - np.pi / 2.)
     else:
-        ww = np.ones_like(uu) * 0.
-        uthetas = np.arctan(np.sqrt(uu ** 2 + vv ** 2) / ww)
-
-    uu = uu.flatten()
-    vv = vv.flatten()
-    ww = ww.flatten()
+        ww = np.zeros_like(uu)
+        uthetas = np.ones_like(uu) * np.pi / 2.
 
     if freqs_mhz is not None:
-        uu = [uu] * len(freqs_mhz)
-        vv = [vv] * len(freqs_mhz)
-        ww = [ww] * len(freqs_mhz)
-
-    return uu, vv, ww
-
-
-def cart_nu_uv(bmax, n, freqs_mhz, rnd_w=False):
-    lambs = const.c.value / (np.array(freqs_mhz) * 1e6)
-
-    uu, vv, ww = cart_uv(bmax, n, rnd_w=rnd_w, freqs_mhz=freqs_mhz)
-
-    uu = [uu_s / lamb for uu_s, lamb in zip(uu, lambs)]
-    vv = [vv_s / lamb for vv_s, lamb in zip(vv, lambs)]
-    ww = [ww_s / lamb for ww_s, lamb in zip(ww, lambs)]
+        uu = np.array([uu] * len(freqs_mhz))
+        vv = np.array([vv] * len(freqs_mhz))
+        ww = np.array([ww] * len(freqs_mhz))
 
     return uu, vv, ww
 
@@ -819,17 +813,6 @@ def polar_uv(rumin, rumax, nr, nphi, rnd_w=False, freqs_mhz=None, rnd_ru=False):
         all_uthetas.append(uthetas)
 
     return all_ru, all_uphis, all_uthetas
-
-
-def polar_nu_uv(bmin, bmax, nr, nphi, freqs_mhz, rnd_w=False, rnd_ru=False):
-    lambs = const.c.value / (np.array(freqs_mhz) * 1e6)
-
-    ru, uphis, uthetas = polar_uv(bmin, bmax, nr, nphi, rnd_w=rnd_w,
-                                  freqs_mhz=freqs_mhz, rnd_ru=rnd_ru)
-
-    ru = [ru_s / lamb for ru_s, lamb in zip(ru, lambs)]
-
-    return ru, uphis, uthetas
 
 
 def lofar_uv(freqs_mhz, dec_deg, hal, har, umin, umax, timeres, include_conj=True,
@@ -1049,6 +1032,22 @@ def get_hash_list_np_array(l):
     return hash(tuple([get_hash_np_array(array) for array in l]))
 
 
+def progress_report(n):
+    t = time.time()
+
+    def report(i):
+        print "\r",
+        eta = ""
+        if i > 0:
+            remaining = (np.round((time.time() - t) / float(i) * (n - i)))
+            eta = " (ETA: %s)" % time.strftime("%H:%M:%S", time.localtime(time.time() + remaining))
+        print "Progress: %s / %s%s" % (i + 1, n, eta),
+        if i == n - 1:
+            print ""
+
+    return report
+
+
 def test_alm2vis():
     ll, mm = get_lm(lmax=100, dl=3)
     alm = np.random.random(ll.size) + 1j * np.random.random(ll.size)
@@ -1072,22 +1071,6 @@ def test_alm2vis():
     vis2 = np.dot(alm_r, tr2.T_r) + 1j * np.dot(alm_i, tr2.T_i)
 
     print np.allclose(vis1, vis2)
-
-
-def progress_report(n):
-    t = time.time()
-
-    def report(i):
-        print "\r",
-        eta = ""
-        if i > 0:
-            remaining = (np.round((time.time() - t) / float(i) * (n - i)))
-            eta = " (ETA: %s)" % time.strftime("%H:%M:%S", time.localtime(time.time() + remaining))
-        print "Progress: %s / %s%s" % (i + 1, n, eta),
-        if i == n - 1:
-            print ""
-
-    return report
 
 
 def test_uv_cov():
@@ -1430,7 +1413,6 @@ def test_gridding():
     print len(uug)
     plt.scatter(uug, vvg, marker='+', s=5)
     plt.show()
-
 
 
 if __name__ == '__main__':
