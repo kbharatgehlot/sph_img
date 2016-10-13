@@ -645,7 +645,7 @@ def is_odd(num):
 def get_power_spectra(alm, ll, mm):
     l_uniq = np.unique(ll)
     # return np.array([np.sum(np.abs(alm[ll == l]) ** 2) / (2 * np.sum(ll == l)) for l in l_uniq])
-    return np.array([np.sum(np.abs(alm[ll == l]) ** 2) / (2 * l) for l in l_uniq])
+    return np.array([np.sum(np.abs(alm[ll == l]) ** 2) / (l + 1) for l in l_uniq])
 
 
 def get_2d_power_spectra(alms, ll, mm, freqs, ft=False):
