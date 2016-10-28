@@ -62,8 +62,11 @@ def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, sa
     cbs = plotutils.ColorbarSetting(plotutils.ColorbarInnerPosition(location=2, height="80%", pad=1))
     latra = np.degrees(theta_max)
 
-    map1 = util.fast_alm2map(alm1, ll1, mm1, nside)
-    map2 = util.fast_alm2map(alm2, ll2, mm2, nside)
+    dl_m1 = np.mean(np.diff(np.unique(ll1)))
+    dl_m2 = np.mean(np.diff(np.unique(ll2)))
+
+    map1 = dl_m1 * util.fast_alm2map(alm1, ll1, mm1, nside)
+    map2 = dl_m2 * util.fast_alm2map(alm2, ll2, mm2, nside)
     diff = map1 - map2
 
     fig = plt.figure(figsize=(14, 5))
@@ -334,32 +337,41 @@ def plot_rec_power_sepctra(ll, mm, alm, savefile=None):
         plt.close(fig)
 
 
-def plot_power_sepctra(ll, mm, alm, sel_ll, sel_mm, alm_rec, savefile=None):
-    # TODO: check the normalization here!
-    l_sampled = np.arange(max(sel_ll) + 1)[np.bincount(sel_ll) > 0]
-    idx = np.where(np.in1d(sel_ll, l_sampled))[0]
+def plot_power_spectra(ll, mm, alm, alm_rec, config, savefile=None):
+    el = np.unique(ll)
 
-    ps_rec = util.get_power_spectra(alm_rec[idx], sel_ll[idx], sel_mm[idx])
-    ps = util.get_power_spectra(alm, ll, mm)
+    if config.beam_type == 'gaussian':
+        omega = np.pi * nputils.gaussian_fwhm_to_sigma(config.fwhm) ** 2.
+    else:
+        omega = config.fwhm ** 2
+
+    pb_corr = 4 * np.pi / omega
+
+    ps_rec = util.get_power_spectra(alm_rec, ll, mm) * pb_corr
+    ps = util.get_power_spectra(alm, ll, mm) * pb_corr
 
     fig = plt.figure()
     fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 5))
-    ax1.plot(np.unique(ll), ps, label='Beam modulated input power spectra')
-    ax1.plot(l_sampled, ps_rec, label='Recovered power spectra', marker='+')
-    # ax1.set_xscale('log')
+    ax1.plot(np.arange(config.lmax + 1), config.cl, label='Input power spectra')
+    ax1.plot(el, ps, label='Beam modulated input power spectra')
+    ax1.plot(el, ps_rec, label='Recovered power spectra', marker='+')
+    ax1.set_xscale('log')
     ax1.set_yscale('log')
     ax1.set_xlabel('l')
     ax1.set_ylabel('cl')
+    ax1.set_xlim(min(el), max(el))
+    ax1.legend()
 
-    diff = ps_rec - ps[np.in1d(np.unique(ll), l_sampled)]
+    diff = ps_rec - ps
     # print nputils.stat(diff)
-    ax2.plot(l_sampled, diff, ls='', marker='+')
+    ax2.plot(el, diff, ls='', marker='+')
     ax2.set_xlabel('l')
     ax2.set_ylabel('diff')
     ax2.text(0.95, 0.05, 'std diff: %.3e\nmax diff: %.3e' % (diff.std(), diff.max()),
              ha='right', va='center', transform=ax2.transAxes)
 
     if savefile is not None:
+        fig.tight_layout()
         fig.savefig(savefile)
         plt.close(fig)
 
@@ -505,14 +517,6 @@ def simulate_sky(config):
     lmax = config.lmax
     fwhm = config.fwhm
 
-    print 'Simulating full sky with healpix synfast'
-    np.random.seed(config.synfast_rnd_seed)
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        full_map, alm = hp.synfast(config.cl, config.nside, alm=True, lmax=lmax, verbose=False)
-    full_map = full_map + abs(full_map.min())
-
     thetas, phis = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
 
     if config.beam_type == 'gaussian':
@@ -530,18 +534,47 @@ def simulate_sky(config):
     else:
         print 'Not using any beam'
         beam = np.ones_like(thetas)
-    full_maps = [full_map * a for a in config.cl_freq]
 
-    fg_maps = [m * beam for m in full_maps]
-    fg_alms = [hp.map2alm(m, lmax) for m in fg_maps]
+    if config.add_fg is True:
+        print 'Using simulated sky from fits file'
+        fg_fits = pyfits.open(config.fg_file)
+        fg_slice = slice(config.fg_freq_start, config.fg_freq_stop, config.fg_freq_step)
+        # Extract slices and convert them to Jy/sr
+        fg_maps_cart = fg_fits[0].data[fg_slice]
+        if not len(fg_maps_cart) == len(config.freqs_mhz):
+            raise Exception('Number of selected slices does not match the number of frequencies')
+
+        fg_maps = [util.cartmap2healpix(fg_map_cart, config.fg_res, config.nside) * beam
+                   for fg_map_cart in fg_maps_cart]
+        fg_alms = [hp.map2alm(m, lmax) for m in fg_maps]
+    else:
+        print 'Simulating full sky with healpix synfast'
+        np.random.seed(config.synfast_rnd_seed)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            full_map, alm = hp.synfast(config.cl, config.nside, alm=True, lmax=lmax, verbose=False)
+
+        full_map = full_map + abs(full_map.min())
+
+        full_maps = [full_map * a for a in config.cl_freq]
+
+        fg_maps = [m * beam for m in full_maps]
+        fg_alms = [hp.map2alm(m, lmax) for m in fg_maps]
 
     if config.add_eor is True:
+        print 'Using simulated EoR signal from fits file'
         eor_fits = pyfits.open(config.eor_file)
-        eor_maps_cart = [eor_fits[0].data[config.eor_freq_res_n * k] for k in range(len(full_maps))]
+        eor_slice = slice(config.eor_freq_start, config.eor_freq_stop, config.eor_freq_step)
+        eor_maps_cart = eor_fits[0].data[eor_slice]
+        if not len(eor_maps_cart) == len(config.freqs_mhz):
+            raise Exception('Number of selected slices does not match the number of frequencies')
+
         eor_maps = [util.cartmap2healpix(eor_map_cart, config.eor_res, config.nside) * beam
                     for eor_map_cart in eor_maps_cart]
         eor_alms = [hp.map2alm(m, lmax) for m in eor_maps]
     else:
+        print 'No EoR signal added'
         eor_alms = [np.zeros_like(m) for m in fg_alms]
 
     alms = [m1 + m2 for m1, m2, in zip(fg_alms, eor_alms)]
@@ -625,9 +658,10 @@ def get_out_lm_sampling(config):
 
 
 def interpolate_lm_odd(alm, ll, mm, config):
+    prev = config.out_lm_even_only
     config.out_lm_even_only = False
     ll2, mm2 = get_out_lm_sampling(config)
-    config.out_lm_even_only = True
+    config.out_lm_even_only = prev
 
     alm2 = np.zeros_like(ll2, dtype=np.complex)
 
@@ -643,83 +677,69 @@ def interpolate_lm_odd(alm, ll, mm, config):
     return alm2, ll2, mm2
 
 
+def l_smoothing(alm, ll, mm):
+    alm_smooth = np.zeros_like(alm, dtype=np.complex)
+
+    for i, m in enumerate(np.unique(mm)):
+        x = ll[mm == m]
+        n = len(x)
+        y_rec = alm[mm == m]
+        tf_dct = dct(y_rec, norm='ortho')
+        tf_dct[n / 2:] = 0
+        y_rec2 = idct(tf_dct, norm='ortho')
+
+        alm_smooth[mm == m] = y_rec2
+
+    return alm_smooth
+
+
+def l_sampling(ll, mm, dl):
+    el = np.unique(ll)
+    ll2, mm2 = util.get_lm(ll.max(), lmin=ll.min() + dl / 2, dl=int(dl), mmax=mm.max())
+    mmax = np.zeros(ll.max() + 1)
+    mmax[el] = np.array([mm[ll == l_].max() for l_ in el])
+    ll2, mm2 = util.strip_mm(ll2, mm2, lambda l: mmax[l])
+    idx = util.get_lm_selection_index(ll, mm, ll2, mm2)
+
+    return ll2, mm2, idx
+
+
 def compute_visibilities(alm, ll, mm, uphis, uthetas, i, trm):
     alm_r, alm_i = trm.split(alm)
-    # t = time.time()
     V = np.dot(alm_r, trm.T_r) + 1j * np.dot(alm_i, trm.T_i)
-    # print time.time() - t
 
     return V
 
 
 def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
-
-    def get_dct_fct(m, t):
-        if t == 'real' and m == 0:
-            return config.dct_fct_r_m0
-        elif t == 'real' and m > 0:
-            return config.dct_fct_r_m1
-        elif t == 'imag' and m == 0:
-            return config.dct_fct_i_m0
-        elif t == 'imag' and m > 0:
-            return config.dct_fct_i_m1
-
     if config.use_dct:
         dct_blocks = []
         if isinstance(config.dct_dl, (list, np.ndarray)):
             dl = float(config.dct_dl[i])
-            dl_m0 = float(config.dct_dl_m0[i])
         else:
             dl = float(config.dct_dl)
-            dl_m0 = float(config.dct_dl_m0)
 
-        print "Using DCT with dl=%s and dl_m0=%s" % (dl, dl_m0)
+        print "Using DCT with DL=%s" % dl
         print "Building DCT Matrix ..."
-        # t = time.time()
         for sel_block in [trm.m0_l_even, trm.lm_even, trm.lm_even]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
-                if m > config.dct_mmax_full_sample:
-                    if m == 0:
-                        nk = int(np.ceil(n / dl_m0))
-                    else:
-                        nk = int(np.ceil(n / dl))
-                    dct_fct = get_dct_fct(m, 'real')
-                    dct_blocks.append(dct_fct(n, nk))
-                else:
-                    dct_blocks.append(np.eye(n))
-        # print time.time() - t
-        # t = time.time()
+                nk = int(np.ceil(n / dl))
+                dct_blocks.append(util.get_dct2(n, nk))
         dct_real = block_diag(dct_blocks).tocsr()
-        # print time.time() - t
 
         dct_blocks = []
 
         for sel_block in [trm.m0_l_odd, trm.lm_odd, trm.lm_odd]:
             for m in np.unique(mm[sel_block]):
                 n = len(ll[sel_block][mm[sel_block] == m])
-                if m > config.dct_mmax_full_sample:
-                    if m == 0:
-                        nk = int(np.ceil(n / dl_m0))
-                    else:
-                        nk = int(np.ceil(n / dl))
-                    dct_fct = get_dct_fct(m, 'imag')
-                    dct_blocks.append(dct_fct(n, nk))
-                else:
-                    dct_blocks.append(np.eye(n))
+                nk = int(np.ceil(n / dl))
+                dct_blocks.append(util.get_dct2(n, nk))
 
         dct_imag = block_diag(dct_blocks).tocsr()
 
         print "Computing dot products of T and DCT ..."
-        # print dct_real.nnz, dct_real.shape
         t = time.time()
-        # # X_r = np.dot(trm.T_r.T, dct_real)
-        # X_r = (dct_real.T.dot(trm.T_r)).T
-        # print time.time() - t
-        # dct_real_arr = dct_real.toarray()
-        # X_r = np.dot(trm.T_r.T, dct_real_arr)
-        # X_i = np.dot(trm.T_i.T, dct_imag.toarray())
-        # temp = np.asfortranarray(trm.T_r)
         if config.use_psparse:
             X_r = pmultiply(dct_real.T, np.asfortranarray(trm.T_r)).T
             X_i = pmultiply(dct_imag.T, np.asfortranarray(trm.T_i)).T
@@ -742,8 +762,6 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
         C_Dinv = diags([1 / (config.noiserms ** 2)] * len(Vobs))
 
     print '\nComputing LHS and RHS matrix ...',
-    # PERF: quite some time is passed here as well, on both (about 6-s for a 14k by 2k matrix)
-    # check C contious, etc...
     X_r_dot_C_Dinv = C_Dinv.T.dot(X_r).T
     lhs_r = np.dot(X_r_dot_C_Dinv, X_r) + np.eye(X_r.shape[1]) * config.reg_lambda
     rhs_r = np.dot(X_r_dot_C_Dinv, Vobs.real)
@@ -777,7 +795,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
                 nk = int(np.ceil(n / dl))
                 dct_C_Dinv = np.diag(np.repeat([1 / cov_error_r_tild[j:j + nk] ** 2], np.ceil(n / float(nk)))[:n])
                 dct_C_Dinv *= (n / float(nk)) ** 2
-                dct_mat = get_dct_fct(m, 'real')(n, n)
+                dct_mat = util.get_dct2(n, n)
                 dct_lhs = np.dot(dct_C_Dinv.T.dot(dct_mat.T).T, dct_mat.T)
                 cov_error_r.extend(np.sqrt(np.linalg.inv(dct_lhs).diagonal()))
                 j += nk
@@ -790,7 +808,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
                 nk = int(np.ceil(n / dl))
                 dct_C_Dinv = np.diag(np.repeat([1 / cov_error_i_tild[j:j + nk] ** 2], np.ceil(n / float(nk)))[:n])
                 dct_C_Dinv *= (n / float(nk)) ** 2
-                dct_mat = get_dct_fct(m, 'imag')(n, n)
+                dct_mat = util.get_dct2(n, n)
                 dct_lhs = np.dot(dct_C_Dinv.T.dot(dct_mat.T).T, dct_mat.T)
                 cov_error_i.extend(np.sqrt(np.linalg.inv(dct_lhs).diagonal()))
                 j += nk
@@ -844,6 +862,19 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
     return alm_rec, alm_rec_noise, Vrec, cov_error
 
 
+def alm_post_processing(alm, ll, mm, config):
+    ''' Post processing + conversion from Jy/sr to K'''
+    if config.do_lm_interp and config.inp_lm_even_only:
+        alm, ll, mm = interpolate_lm_odd(alm, ll, mm, config)
+    if config.do_l_smoothing and not config.inp_lm_even_only:
+        alm = l_smoothing(alm, ll, mm)
+    if config.do_l_sampling:
+        ll, mm, idx = l_sampling(ll, mm, config.l_sampling_dl)
+        alm = alm[idx]
+
+    return alm, ll, mm
+
+
 def get_config(dirname):
     return imp.load_source('config', os.path.join(dirname, 'config.py'))
 
@@ -860,7 +891,12 @@ def check_file_compressed(filename, extensions=['.gz', '.xz']):
 
 
 def load_data(filename, compelx_columns):
-    conv = dict(zip(compelx_columns, [np.complex] * len(compelx_columns)))
+    def conv_fct(data):
+        try:
+            return np.complex(data)
+        except:
+            return np.nan
+    conv = dict(zip(compelx_columns, [conv_fct] * len(compelx_columns)))
     return pd.read_csv(check_file_compressed(filename), converters=conv)
 
 
@@ -915,10 +951,10 @@ def save_alm(dirname, ll, mm, alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_
 
 def load_alm(dirname):
     filename = os.path.join(dirname, 'alm.dat')
-    print "Loading alm result from:", filename
+    # print "Loading alm result from:", filename
 
     # a = np.loadtxt(filename)
-    a = pd.read_csv(filename, delimiter=" ", header=None).values
+    a = pd.read_csv(check_file_compressed(filename), delimiter=" ", header=None).values
 
     if a.shape[1] == 8:
         ll, mm, alm_real, alm_imag, alm_rec_real, alm_rec_imag, \
@@ -981,7 +1017,7 @@ def load_visibilities_simu(dirname):
 
 def load_visibilities(dirname):
     filename = os.path.join(dirname, 'visibilities.dat')
-    print "Loading visibilities result from:", filename
+    # print "Loading visibilities result from:", filename
 
     # a = np.loadtxt(filename)
     a = pd.read_csv(filename, delimiter=" ", header=None).values
@@ -1200,7 +1236,7 @@ def do_inversion(config, result_dir):
     sel_ll, sel_mm = get_out_lm_sampling(config)
 
     # plotting the sampling
-    plot_sampling(inp_ll, inp_mm, sel_ll, sel_mm, os.path.join(result_dir, 'lm_sampling.pdf'))
+    # plot_sampling(inp_ll, inp_mm, sel_ll, sel_mm, os.path.join(result_dir, 'lm_sampling.pdf'))
 
     print '\nBuilding the global YLM matrix...'
     global_inp_ylm = util.SplittedYlmMatrix(inp_ll, inp_mm, uphis, uthetas, rb,
@@ -1218,7 +1254,7 @@ def do_inversion(config, result_dir):
     for i, freq in enumerate(config.freqs_mhz):
         sel_ll, sel_mm = get_out_lm_sampling(config)
 
-        plot_pool = multiprocessing.Pool(processes=4)
+        plot_pool = multiprocessing.Pool(processes=1)
         print "\nProcessing frequency %s MHz" % freq
 
         lamb = const.c.value / (float(freq) * 1e6)
@@ -1239,14 +1275,15 @@ def do_inversion(config, result_dir):
 
         title = 'Type: %s, Nvis: %s, Umin: %s, Umax: %s' % (config.uv_type, len(uu),
                                                             config.uv_rumin, config.uv_rumax)
-        plot_pool.apply_async(plot_uv_cov, (uu, vv, ww, title, os.path.join(result_freq_dir, 'uv_cov.pdf')))
+        plot_uv_cov(uu, vv, ww, config, title, os.path.join(result_freq_dir, 'uv_cov.pdf'))
 
-        # computing the visibilities
         alm = inp_alms[i]
-        # alm = alm - 2.6 * beam_alm
+
+        # computing the visibilities in Jansky
+        jy2k = ((1e-26 * lamb ** 2) / (2 * const.k_B.value))
         print "\nBuilding visibilities..."
-        V = compute_visibilities(alm, inp_ll, inp_mm, uphis, uthetas, i, trm)
-        # break
+        V = compute_visibilities(alm / jy2k, inp_ll, inp_mm, uphis, uthetas, i, trm)
+        print "Noise in visibility: %.3f Jy" % config.noiserms
 
         np.random.seed(None)
         Vobs = V + config.noiserms * np.random.randn(len(V)) + 1j * config.noiserms * np.random.randn(len(V))
@@ -1271,12 +1308,18 @@ def do_inversion(config, result_dir):
         alm_rec, alm_rec_noise, Vrec, cov_error = alm_ml_inversion(sel_ll, sel_mm, Vobs, uphis, uthetas,
                                                                    i, trm, config)
 
-        alm_rec_noise, _, _ = interpolate_lm_odd(alm_rec_noise, sel_ll, sel_mm, config)
-        cov_error, _, _ = interpolate_lm_odd(cov_error, sel_ll, sel_mm, config)
-        sel_alm, _, _ = interpolate_lm_odd(sel_alm, sel_ll, sel_mm, config)
-        sel_fg, _, _ = interpolate_lm_odd(fg_alms[i][idx], sel_ll, sel_mm, config)
-        sel_eor, _, _ = interpolate_lm_odd(eor_alms[i][idx], sel_ll, sel_mm, config)
-        alm_rec, sel_ll, sel_mm = interpolate_lm_odd(alm_rec, sel_ll, sel_mm, config)
+        # Convert back to Kelvin
+        alm_rec = alm_rec * jy2k
+        alm_rec_noise = alm_rec_noise * jy2k
+        cov_error = cov_error * jy2k
+
+        print "Post processing..."
+        alm_rec, _, _ = alm_post_processing(alm_rec, sel_ll, sel_mm, config)
+        alm_rec_noise, _, _ = alm_post_processing(alm_rec_noise, sel_ll, sel_mm, config)
+        cov_error, _, _ = alm_post_processing(cov_error, sel_ll, sel_mm, config)
+        sel_alm, _, _ = alm_post_processing(sel_alm, sel_ll, sel_mm, config)
+        sel_fg, _, _ = alm_post_processing(fg_alms[i][idx], sel_ll, sel_mm, config)
+        sel_eor, sel_ll, sel_mm = alm_post_processing(eor_alms[i][idx], sel_ll, sel_mm, config)
 
         alms_rec.append(alm_rec)
 
@@ -1288,26 +1331,22 @@ def do_inversion(config, result_dir):
         vlm_rec = util.alm2vlm(alm_rec, sel_ll)
         vlm_rec_noise = util.alm2vlm(alm_rec_noise, sel_ll)
 
-        print len(vlm_rec), len(vlm_rec_noise), len(cov_error), len(sel_ll), len(sel_mm)
-
-        print "Plotting result"
+        print "Plotting result..."
         # plot vlm vs vlm_rec
-        # plot_pool.apply_async(plot_vlm_vs_vlm_rec, (sel_ll, sel_mm, sel_vlm, vlm_rec,
-        #                                             os.path.join(result_freq_dir, 'vlm_vs_vlm_rec.pdf')))
+        plot_pool.apply_async(plot_vlm_vs_vlm_rec, (sel_ll, sel_mm, sel_vlm, vlm_rec,
+                                                    os.path.join(result_freq_dir, 'vlm_vs_vlm_rec.pdf')))
 
         # plot vlm vs vlm_rec in a map
         plot_pool.apply_async(plot_vlm_vs_vlm_rec_map, (sel_ll, sel_mm, sel_vlm, vlm_rec, 4 * np.pi * cov_error,
                                                         os.path.join(result_freq_dir, 'lm_maps_imag.pdf')))
 
         # plot power spectra
-        plot_pool.apply_async(plot_power_sepctra, (inp_ll, inp_mm, alm, sel_ll, sel_mm, alm_rec,
-                                                   os.path.join(result_freq_dir, 'angular_power_spectra.pdf')))
+        plot_power_spectra(sel_ll, sel_mm, sel_alm, alm_rec, config,
+                           os.path.join(result_freq_dir, 'angular_power_spectra.pdf'))
 
         # plot vlm diff
         plot_pool.apply_async(plot_vlm_diff, (sel_ll, sel_mm, sel_vlm, vlm_rec, 4 * np.pi * cov_error,
                                               os.path.join(result_freq_dir, 'vlm_minus_vlm_rec.pdf')))
-        # plot_vlm_diff(sel_ll, sel_mm, sel_vlm, vlm_rec, 4 * np.pi * cov_error,
-        #               os.path.join(result_freq_dir, 'vlm_minus_vlm_rec.pdf'))
 
         plot_pool.apply_async(plot_vlm_diff, (sel_ll, sel_mm, np.zeros_like(vlm_rec), vlm_rec_noise,
                                               4 * np.pi * cov_error,
@@ -1321,7 +1360,7 @@ def do_inversion(config, result_dir):
         plot_pool.apply_async(plot_sky_cart_diff, (alm, alm_rec, inp_ll, inp_mm, sel_ll, sel_mm, config.nside),
                               dict(theta_max=2 * config.fwhm, savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
 
-        write_gridded_visibilities(result_freq_dir, 'gridded_vis', V, config, freq, 1)
+        # write_gridded_visibilities(result_freq_dir, 'gridded_vis', V, config, freq, 1)
 
         t = time.time()
         print "Waiting for plotting to finish...",

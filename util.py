@@ -3,6 +3,7 @@ Utility functions
 """
 
 import os
+import sys
 import time
 import itertools
 from multiprocessing import Pool
@@ -450,7 +451,7 @@ def get_lm(lmax, lmin=0, dl=1, mmin=0, mmax=-1, dm=1, neg_m=False):
             ll.extend(m_l[::-1])
         else:
             ll.extend(m_l)
-    return np.array(ll), np.array(mm)
+    return np.array(ll, dtype=int), np.array(mm, dtype=int)
 
 
 def strip_mm(ll, mm, mmax_fct):
@@ -792,7 +793,7 @@ def polar_uv(rumin, rumax, nr, nphi, rnd_w=False, freqs_mhz=None, rnd_ru=False):
     all_uthetas = []
 
     if rnd_w:
-        uthetas = np.pi / 4. + nputils.get_random().rand(nr * nphi) * np.pi / 2.
+        uthetas = np.pi / 4. + nputils.get_random().rand(int(nr * nphi)) * np.pi / 2.
     else:
         uthetas = np.ones(nr * nphi) * np.pi / 2.
 
@@ -801,7 +802,7 @@ def polar_uv(rumin, rumax, nr, nphi, rnd_w=False, freqs_mhz=None, rnd_ru=False):
         if rnd_ru:
             # r = nputils.get_random(int(freq)).uniform(rumin, rumax, nr)
             r = np.linspace(rumin, rumax, num=nr)
-            r += nputils.get_random(int(freq)).randn(nr) * 0.2 * (rumax - rumin) / float(nr)
+            r += nputils.get_random(int(freq)).randn(int(nr)) * 0.2 * (rumax - rumin) / float(nr)
         else:
             r = np.linspace(rumin, rumax, num=nr)
         uphis, ru = np.meshgrid(uphis, r)
@@ -1042,6 +1043,7 @@ def progress_report(n):
             remaining = (np.round((time.time() - t) / float(i) * (n - i)))
             eta = " (ETA: %s)" % time.strftime("%H:%M:%S", time.localtime(time.time() + remaining))
         print "Progress: %s / %s%s" % (i + 1, n, eta),
+        sys.stdout.flush()
         if i == n - 1:
             print ""
 
