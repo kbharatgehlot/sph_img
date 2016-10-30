@@ -629,6 +629,15 @@ def simulate_uv_cov(config):
                                    bmax, config.lofar_timeres,
                                    include_conj=config.lofar_include_conj)
         rb, uphis, uthetas = util.cart2sph(uu, vv, ww)
+    elif config.uv_type == 'gridded':
+        print 'Using gridded visibilities configuration'
+        uu, vv, weights = read_gridded_config(config.gridded_weights, config)
+        ww = np.zeros_like(uu)
+        ru, uphis, uthetas = util.cart2sph(uu, vv, ww)
+        rb = np.array([ru * min(lambs)])
+        uphis = np.array([uphis])
+        uthetas = np.array([uthetas])
+        config.noiserms = config.noiserms / np.sqrt(weights)
     else:
         print 'Configuration value uv_type invalid'
         sh.usage(True)
@@ -1089,6 +1098,37 @@ def load_results_v3(dirname):
         ru, uphis, uthetas, V, Vobs, Vrec
 
 
+def read_gridded_config(weighting_file, config):
+    f_w = pyfits.open(weighting_file)
+    du = f_w[0].header['CDELT1']
+    dv = f_w[0].header['CDELT2']
+    nu = f_w[0].header['NAXIS1']
+    nv = f_w[0].header['NAXIS2']
+
+    u = du * np.arange(-nu / 2, nu / 2)
+    v = dv * np.arange(-nv / 2, nv / 2)
+
+    uu, vv = np.meshgrid(u, v)
+
+    weights = f_w[0].data[0][0]
+
+    idx_u, idx_v = np.nonzero(weights)
+
+    weights = weights[idx_u, idx_v].flatten()
+    uu = uu[idx_u, idx_v].flatten()
+    vv = vv[idx_u, idx_v].flatten()
+
+    ru = np.sqrt(uu ** 2 + vv ** 2)
+
+    idx = (ru >= config.uv_rumin) & (ru <= config.uv_rumax)
+
+    weights = weights[idx]
+    uu = uu[idx]
+    vv = vv[idx]
+
+    return uu, vv, weights
+
+
 def read_gridded_visbilities(filename, config):
     dirname = os.path.dirname(filename)
     basename = '_'.join(os.path.basename(filename).split('_')[:-1])
@@ -1271,6 +1311,9 @@ def do_inversion(config, result_dir):
         print "Done in %.2f s" % (time.time() - t)
 
         uthetas, uphis, ru = inp_ylm[0].thetas, inp_ylm[0].phis, inp_ylm[0].rb / lamb
+        if isinstance(config.noiserms, np.ndarray):
+            config.noiserms = config.noiserms[inp_ylm[0].sort_idx_cols]
+
         uu, vv, ww = util.sph2cart(uthetas, uphis, ru)
 
         title = 'Type: %s, Nvis: %s, Umin: %s, Umax: %s' % (config.uv_type, len(uu),
@@ -1283,7 +1326,11 @@ def do_inversion(config, result_dir):
         jy2k = ((1e-26 * lamb ** 2) / (2 * const.k_B.value))
         print "\nBuilding visibilities..."
         V = compute_visibilities(alm / jy2k, inp_ll, inp_mm, uphis, uthetas, i, trm)
-        print "Noise in visibility: %.3f Jy" % config.noiserms
+
+        if isinstance(config.noiserms, np.ndarray):
+            print "Noise in visibility (mean): %.3f Jy" % np.mean(config.noiserms)
+        else:
+            print "Noise in visibility: %.3f Jy" % config.noiserms
 
         np.random.seed(None)
         Vobs = V + config.noiserms * np.random.randn(len(V)) + 1j * config.noiserms * np.random.randn(len(V))

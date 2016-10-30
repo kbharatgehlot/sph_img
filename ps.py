@@ -199,8 +199,8 @@ def plot_2d_power_spectra(ps, ll, delay, ax=None, title=None, kper=None, kpar=No
 
     if kper is not None:
         extent = (min(kper), max(kper), min(kpar), max(kpar))
-        ax.set_xlabel('$k_{\\bot} (h cMpc^{-1})$')
-        ax.set_ylabel('$k_{\parallel} (h cMpc^{-1})$')
+        ax.set_xlabel('$k_{\\bot} (h\,cMpc^{-1})$')
+        ax.set_ylabel('$k_{\parallel} (h\,cMpc^{-1})$')
         if not kper_only:
             axb = ax.twiny()
             axb.set_xlim(min(ll), max(ll))
@@ -252,11 +252,11 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
 
     # print nsigma * np.sqrt(dsp_sub_n + dsp_cov_error) * kr
 
-    ax.errorbar(k_mean, dsp_sub, yerr=nsigma * dsp_sub_err, marker='+', label='Isub')
+    ax.errorbar(k_mean, dsp_sub, yerr=nsigma * dsp_sub_err, marker='+', label='I - model')
     ax.errorbar(k_mean, dsp_rec, yerr=nsigma * dsp_rec_err, marker='+', label='I')
     ax.errorbar(k_mean, dsp_v, yerr=nsigma * dsp_v_err, marker='+', label='V')
     ax.errorbar(k_mean, (dsp_sub - dsp_v), yerr=nsigma * np.sqrt(dsp_sub_err ** 2 + dsp_v_err ** 2),
-                marker='+', label='Isub - V')
+                marker='+', label='(I - model) - V')
 
     print dsp_v
 
@@ -264,7 +264,7 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
     ax.set_xscale('log')
 
     ax.set_ylabel('$\Delta^2 (k) [mK^2]$')
-    ax.set_xlabel('$k (h cMpc^{-1})$')
+    ax.set_xlabel('$k [h\,cMpc^{-1}]$')
 
     ax.set_xlim(bins.min(), bins.max())
     ax.legend(loc='best')

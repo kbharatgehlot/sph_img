@@ -1115,7 +1115,7 @@ def test_uv_cov():
 
     # freqs = np.arange(110, 130, 5)
     freqs = [150.]
-    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 20, 250, 200, min_max_is_baselines=False)
+    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 32, 100, 400, min_max_is_baselines=False)
     plt.figure()
     colors = plotutils.ColorSelector()
     uphis = []
@@ -1421,7 +1421,7 @@ if __name__ == '__main__':
     # test_cached_matrix()
     # test_cached_mp_matrix()
     # test_cached_ylm()
-    # test_uv_cov()
+    test_uv_cov()
     # test_lm_index()
     # test_ylm_precision()
     # test_pairing()
@@ -1430,4 +1430,4 @@ if __name__ == '__main__':
     # test_index_matrix()
     # test_ylm_index_matrix()
     # test_ylm_set()
-    test_gridding()
+    # test_gridding()
