@@ -107,6 +107,9 @@ lofar_har = 6
 lofar_timeres = 800.
 lofar_include_conj = True
 
+# For uv_type='gridded', you need to provide a weighting file
+gridded_weights = ''
+
 # =================================================================
 # sampled lm modes that will be recovered
 # =================================================================
@@ -173,6 +176,7 @@ do_l_smoothing = True
 # Save only a sampled set of all lm modes
 do_l_sampling = True
 l_sampling_dl = dct_dl
+l_sampling_dl_start = 0
 
 # =================================================================
 # General parameters

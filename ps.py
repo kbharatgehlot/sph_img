@@ -86,7 +86,7 @@ def nudft(x, y, M=None, w=None, dx=None):
         dx = x[1] - x[0]
 
     if w is not None:
-        y = y * w  #[:, np.newaxis]
+        y = y * w  # [:, np.newaxis]
 
     df = 1 / (dx * M)
     k = df * np.arange(-(M / 2), M - (M / 2))
@@ -103,10 +103,14 @@ def lssa(x, y, M, w=None, dx=None):
     k = np.fft.fftshift(np.fft.fftfreq(M, dx))
 
     if w is not None:
-        y *= w[:, np.newaxis]
+        y *= w  # [:, np.newaxis]
 
-    X = np.exp(2. * np.pi * 1j * k * x[:, np.newaxis]) / len(x)
-    Y = np.dot(np.linalg.pinv(np.dot(X.T, X)), X.T)
+    # Version with noise covariance matrix (does not really improve stuff):
+    # C_Dinv = np.diag(1 / noiserms ** 2)
+    # Y = np.dot(np.linalg.pinv(np.dot(np.dot(A.T, C_Dinv), A)), np.dot(A.T, C_Dinv))
+
+    A = np.exp(2. * np.pi * 1j * k * x[:, np.newaxis]) / len(x)
+    Y = np.dot(np.linalg.pinv(np.dot(A.T, A)), A.T)
 
     return k, np.tensordot(y.T, Y.T, axes=[1, 0]).T
 

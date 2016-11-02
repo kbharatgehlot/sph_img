@@ -15,10 +15,7 @@ from libwise import plotutils, nputils
 from libwise import scriptshelper as sh
 
 from scipy.sparse.linalg import cg
-from scipy.sparse import vstack as sparse_vstack
-from scipy.sparse import eye as sparse_eye
 from scipy.sparse import block_diag, diags
-from scipy.sparse.linalg import inv as sparse_inv
 from scipy.fftpack import dct, idct
 from psparse import pmultiply
 
@@ -33,7 +30,9 @@ import util
 
 
 def plot_sky(alm, ll, mm, nside, title='', savefile=None):
-    map = util.fast_alm2map(alm, ll, mm, nside)
+    dl = np.mean(np.diff(np.unique(ll)))
+
+    map = dl * util.fast_alm2map(alm, ll, mm, nside)
     hp.orthview(map, rot=(180, 90), title=title)
     hp.graticule(verbose=False)
 
@@ -43,7 +42,9 @@ def plot_sky(alm, ll, mm, nside, title='', savefile=None):
 
 
 def plot_sky_cart(alm, ll, mm, nside, title='', theta_max=0.35, savefile=None):
-    map = util.fast_alm2map(alm, ll, mm, nside)
+    dl = np.mean(np.diff(np.unique(ll)))
+
+    map = dl * util.fast_alm2map(alm, ll, mm, nside)
     theta_max = np.degrees(theta_max)
     hp.cartview(map, rot=(180, 90),
                 lonra=[-theta_max, theta_max], latra=[-theta_max, theta_max], title=title)
@@ -209,17 +210,17 @@ def plot_vlm_vs_vlm_rec(sel_ll, sel_mm, sel_vlm, vlm_rec, savefile=None, name='v
 def plot_vlm(ll, mm, vlm_rec, savefile=None, name='vlm'):
     fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 5))
 
-    ax1.scatter(mm, abs(vlm_rec), c='orange', marker='+', label='Recovered')
+    # ax1.autoscale(axis='y')
+    ax1.plot(mm, abs(vlm_rec), c='orange', marker='+', label='Recovered', ls='')
     ax1.set_yscale('log')
-    # ax1.set_ylim(1e-5, 1)
     ax1.set_xlim(0, max(mm))
     ax1.set_xlabel('m')
     ax1.set_ylabel('abs(%s)' % name)
     ax1.legend()
 
-    ax2.scatter(ll, abs(vlm_rec), c='orange', marker='+', label='Recovered')
+    # ax2.autoscale(axis='y')
+    ax2.plot(ll, abs(vlm_rec), c='orange', marker='+', label='Recovered', ls='')
     ax2.set_yscale('log')
-    # ax2.set_ylim(1e-5, 5)
     ax2.set_xlim(0, max(ll))
     ax2.set_xlabel('l')
     ax2.set_ylabel('abs(%s)' % name)
@@ -638,6 +639,7 @@ def simulate_uv_cov(config):
         uphis = np.array([uphis])
         uthetas = np.array([uthetas])
         config.noiserms = config.noiserms / np.sqrt(weights)
+        config.weights = weights
     else:
         print 'Configuration value uv_type invalid'
         sh.usage(True)
@@ -680,7 +682,7 @@ def interpolate_lm_odd(alm, ll, mm, config):
         yi = alm[mm == m].imag
         y2r = idct(dct(yr), n=len(x2)) / len(x2)
         y2i = idct(dct(yi), n=len(x2)) / len(x2)
-        norm = np.sum(mm2 == m) / np.sum(mm == m)
+        norm = np.sum(mm == m) / float(np.sum(mm2 == m))
         alm2[mm2 == m] = (y2r + 1j * y2i) * norm
 
     return alm2, ll2, mm2
@@ -702,9 +704,11 @@ def l_smoothing(alm, ll, mm):
     return alm_smooth
 
 
-def l_sampling(ll, mm, dl):
+def l_sampling(ll, mm, dl, dl_start):
     el = np.unique(ll)
-    ll2, mm2 = util.get_lm(ll.max(), lmin=ll.min() + dl / 2, dl=int(dl), mmax=mm.max())
+    ll2, mm2 = util.get_lm(ll.max(), lmin=ll.min() + dl_start, dl=int(dl), mmax=mm.max())
+    mm2 = mm2[ll2 >= min(ll)]
+    ll2 = ll2[ll2 >= min(ll)]
     mmax = np.zeros(ll.max() + 1)
     mmax[el] = np.array([mm[ll == l_].max() for l_ in el])
     ll2, mm2 = util.strip_mm(ll2, mm2, lambda l: mmax[l])
@@ -873,12 +877,12 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
 
 def alm_post_processing(alm, ll, mm, config):
     ''' Post processing + conversion from Jy/sr to K'''
-    if config.do_lm_interp and config.inp_lm_even_only:
+    if config.do_lm_interp and config.out_lm_even_only:
         alm, ll, mm = interpolate_lm_odd(alm, ll, mm, config)
-    if config.do_l_smoothing and not config.inp_lm_even_only:
+    if config.do_l_smoothing and not config.out_lm_even_only:
         alm = l_smoothing(alm, ll, mm)
     if config.do_l_sampling:
-        ll, mm, idx = l_sampling(ll, mm, config.l_sampling_dl)
+        ll, mm, idx = l_sampling(ll, mm, config.l_sampling_dl, config.l_sampling_dl_start)
         alm = alm[idx]
 
     return alm, ll, mm
@@ -1123,28 +1127,60 @@ def read_gridded_config(weighting_file, config):
     idx = (ru >= config.uv_rumin) & (ru <= config.uv_rumax)
 
     weights = weights[idx]
+    # weights = np.ones_like(weights) * np.mean(weights)  # Uniform weights
     uu = uu[idx]
     vv = vv[idx]
 
     return uu, vv, weights
 
 
+def get_gridded_visibilities(config, V, uu, vv):
+    f_w = pyfits.open(config.gridded_weights)
+    du = f_w[0].header['CDELT1']
+    n = f_w[0].header['NAXIS1']
+
+    u = du * np.arange(-n / 2, n / 2)
+    v = du * np.arange(-n / 2, n / 2)
+
+    n = len(u)
+
+    g_uu, g_vv = np.meshgrid(u, v)
+
+    x = (np.round(g_uu, decimals=4) + 1e-6 * np.round(g_vv, decimals=4)).flatten()
+    y = np.round(uu, decimals=4) + 1e-6 * np.round(vv, decimals=4)
+
+    idx = np.where(np.in1d(x, y, assume_unique=False))[0]
+
+    idx_x = np.argsort(x)
+    sorted_x = x[idx_x]
+    idx_y = np.searchsorted(sorted_x, y)
+    idx = idx_x[idx_y]
+
+    g_Vobs = np.zeros_like(g_uu, dtype=np.complex).flatten()
+    g_Vobs[idx] = V
+    g_Vobs = g_Vobs.reshape(*g_uu.shape)
+
+    return g_Vobs
+
+
 def read_gridded_visbilities(filename, config):
     dirname = os.path.dirname(filename)
     basename = '_'.join(os.path.basename(filename).split('_')[:-1])
-    g_real = os.path.join(dirname, basename + '_GR.fits')
-    g_imag = os.path.join(dirname, basename + '_GI.fits')
-    # stockes_v = os.path.join(dirname, basename + '_V.fits')
-    # stockes_i = os.path.join(dirname, basename + '_I.fits')
-    # g_real_stockes_v = os.path.join(dirname, basename + '_GRV.fits')
-    # g_imag_stockes_v = os.path.join(dirname, basename + '_GIV.fits')
+    if config.stokes == 'I':
+        print 'Reading %s Stokes I...' % basename
+        g_real = os.path.join(dirname, basename + '_GR.fits')
+        g_imag = os.path.join(dirname, basename + '_GI.fits')
+    else:
+        print 'Reading %s Stokes %s...' % (basename, config.stokes)
+        g_real = os.path.join(dirname, basename + '_GR%s.fits' % config.stokes)
+        g_imag = os.path.join(dirname, basename + '_GI%s.fits' % config.stokes)
     weighting = os.path.join(dirname, basename + '_W.fits')
 
     assert os.path.exists(g_real) and os.path.exists(g_imag)
 
     f_g_real = pyfits.open(g_real)
     f_g_imag = pyfits.open(g_imag)
-    freq = f_g_real[0].header['CRVAL3'] / float(1e6)
+    freq = f_g_real[0].header['CRVAL3']
     du = f_g_real[0].header['CDELT1']
     dv = f_g_real[0].header['CDELT2']
     nu = f_g_real[0].header['NAXIS1']
@@ -1166,38 +1202,16 @@ def read_gridded_visbilities(filename, config):
 
     ru = np.sqrt(uu ** 2 + vv ** 2)
 
-    idx = (ru >= config.uv_rumin) & (ru <= config.uv_rumax)  # & ((uu > 0) | ((uu == 0) & (vv >= 0)))
+    idx = (ru >= config.uv_rumin) & (ru <= config.uv_rumax)
 
     vis = vis[idx]
     uu = uu[idx]
     vv = vv[idx]
 
-    # print nputils.stat(vis)
-
-    # Method 1: get the noise rms on the image looking at stocks V dirty image
-    #           and scale that for each grid points using weighting
-    # Method 2: get the absolute value of the stock V visibilities
-
-    # if os.path.exists(stockes_v):
-    #     print "Using Stockes V file"
-    #     noiserms = np.std(pyfits.open(stockes_v)[0].data[0][0])
-    #     print nputils.stat(pyfits.open(stockes_v)[0].data[0][0][idx_u, idx_v].flatten()[idx])
-    # if os.path.exists(stockes_i):
-    #     print nputils.stat(pyfits.open(stockes_i)[0].data[0][0])
-    # if os.path.exists(g_imag_stockes_v):
-    #     g_v_r = pyfits.open(g_real_stockes_v)[0].data[0][0][idx_u, idx_v].flatten()
-    #     g_v_i = pyfits.open(g_imag_stockes_v)[0].data[0][0][idx_u, idx_v].flatten()
-    #     g_v = g_v_r[idx] + 1j * g_v_i[idx]
-    #     print nputils.stat(g_v)
-    # else:
-    #     noiserms = config.noiserms
-
     if os.path.exists(weighting):
-        # print "Using weighting file"
         w = pyfits.open(weighting)[0].data[0][0]
         w = w[idx_u, idx_v].flatten()[idx]
-        noiserms = (config.SEFD / np.sqrt(2. * delnu * config.Int_time)) * (1. / np.sqrt(w))
-        # print nputils.stat(noiserms)
+        noiserms = (config.SEFD / np.sqrt(2. * delnu * config.Int_time)) / np.sqrt(w)
 
     return freq, uu, vv, vis, noiserms
 
@@ -1313,6 +1327,7 @@ def do_inversion(config, result_dir):
         uthetas, uphis, ru = inp_ylm[0].thetas, inp_ylm[0].phis, inp_ylm[0].rb / lamb
         if isinstance(config.noiserms, np.ndarray):
             config.noiserms = config.noiserms[inp_ylm[0].sort_idx_cols]
+            config.weights = config.weights[inp_ylm[0].sort_idx_cols]
 
         uu, vv, ww = util.sph2cart(uthetas, uphis, ru)
 
@@ -1337,6 +1352,35 @@ def do_inversion(config, result_dir):
 
         # plotting the visibilities
         plot_pool.apply_async(plot_visibilities, (uu, vv, ww, V, os.path.join(result_freq_dir, 'vis_from_vlm.pdf')))
+
+        if config.uv_type == 'gridded':
+            if config.uv_type == 'gridded':
+                print "Number total of visibilities:", np.sum(config.weights)
+            g_Vobs = get_gridded_visibilities(config, Vobs, uu, vv) * jy2k
+            g_V = get_gridded_visibilities(config, V, uu, vv) * jy2k
+
+            fig, ax = plt.subplots()
+            cbs = plotutils.ColorbarSetting(plotutils.ColorbarOutterPosition())
+            extent = np.array([-5, 5, -5, 5])
+
+            dmap_obs = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(g_Vobs)))
+            im_mappable = ax.imshow(dmap_obs.real, extent=extent)
+            cbs.add_colorbar(im_mappable, ax)
+            # ax1.set_xlabel('DEC (deg)')
+            ax.set_ylabel('RA (deg)')
+            ax.set_title('FFT(Vobs) Stokes I')
+            fig.savefig(os.path.join(result_dir, 'dirty_map.pdf'))
+            plt.close(fig)
+
+            fig, ax = plt.subplots()
+            dmap = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(g_V)))
+            im_mappable = ax.imshow(dmap.real - dmap_obs.real, extent=extent)
+            cbs.add_colorbar(im_mappable, ax)
+            # ax1.set_xlabel('DEC (deg)')
+            ax.set_ylabel('RA (deg)')
+            ax.set_title('FFT(Vobs) Stokes I')
+            fig.savefig(os.path.join(result_dir, 'diff_dirty_map.pdf'))
+            plt.close(fig)
 
         idx = util.get_lm_selection_index(inp_ll, inp_mm, sel_ll, sel_mm)
 
@@ -1388,8 +1432,8 @@ def do_inversion(config, result_dir):
                                                         os.path.join(result_freq_dir, 'lm_maps_imag.pdf')))
 
         # plot power spectra
-        plot_power_spectra(sel_ll, sel_mm, sel_alm, alm_rec, config,
-                           os.path.join(result_freq_dir, 'angular_power_spectra.pdf'))
+        # plot_power_spectra(sel_ll, sel_mm, sel_alm, alm_rec, config,
+        #                    os.path.join(result_freq_dir, 'angular_power_spectra.pdf'))
 
         # plot vlm diff
         plot_pool.apply_async(plot_vlm_diff, (sel_ll, sel_mm, sel_vlm, vlm_rec, 4 * np.pi * cov_error,
@@ -1404,8 +1448,8 @@ def do_inversion(config, result_dir):
                                                                                    'vis_minus_vis_rec.pdf')))
 
         # plot output sky
-        plot_pool.apply_async(plot_sky_cart_diff, (alm, alm_rec, inp_ll, inp_mm, sel_ll, sel_mm, config.nside),
-                              dict(theta_max=2 * config.fwhm, savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
+        plot_pool.apply_async(plot_sky_cart_diff, (sel_alm, alm_rec, sel_ll, sel_mm, sel_ll, sel_mm, config.nside),
+                              dict(theta_max=config.fwhm, savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
 
         # write_gridded_visibilities(result_freq_dir, 'gridded_vis', V, config, freq, 1)
 
@@ -1426,10 +1470,6 @@ def do_inversion(config, result_dir):
 
 
 def do_inversion_gridded(config, result_dir):
-    config.out_lm_even_only = False
-    ll2, mm2 = get_out_lm_sampling(config)
-    config.out_lm_even_only = True
-
     ll, mm = get_out_lm_sampling(config)
 
     print '\nBuilding the global YLM matrix...'
@@ -1454,7 +1494,7 @@ def do_inversion_gridded(config, result_dir):
         freqs.append(freq)
 
         plot_pool = multiprocessing.Pool(processes=4)
-        print "\nProcessing frequency %s MHz" % freq
+        print "\nProcessing frequency %.3f MHz" % (freq * 1e-6)
 
         result_freq_dir = os.path.join(result_dir, 'freq_%s' % i)
         os.mkdir(result_freq_dir)
@@ -1474,12 +1514,18 @@ def do_inversion_gridded(config, result_dir):
 
         alm_rec, alm_rec_noise, Vrec, cov_error = alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config)
 
+        jy2k = ((1e-26 * (const.c / freq) ** 2) / (2 * const.k_B.value))
+
+        # Convert back to Kelvin
+        alm_rec = alm_rec * jy2k
+        alm_rec_noise = alm_rec_noise * jy2k
+        cov_error = cov_error * jy2k
+
+        print "Post processing..."
         # When w=0, odd l+m modes are not recovered, we compute them by interpolation
-        alm_rec, ll2, mm2 = interpolate_lm_odd(alm_rec, ll, mm, config)
-        alm_rec_noise, _, _ = interpolate_lm_odd(alm_rec_noise, ll, mm, config)
-        cov_error, _, _ = interpolate_lm_odd(cov_error, ll, mm, config)
-        # ll2 = ll
-        # mm2 = mm
+        alm_rec, ll2, mm2 = alm_post_processing(alm_rec, ll, mm, config)
+        alm_rec_noise, _, _ = alm_post_processing(alm_rec_noise, ll, mm, config)
+        cov_error, _, _ = alm_post_processing(cov_error, ll, mm, config)
 
         vlm_rec = util.alm2vlm(alm_rec, ll2)
         vlm_rec_noise = util.alm2vlm(alm_rec_noise, ll2)
@@ -1493,17 +1539,19 @@ def do_inversion_gridded(config, result_dir):
 
         # plot vlm_rec
         plot_pool.apply_async(plot_vlm_rec_map, (ll2, mm2, vlm_rec, 4 * np.pi * cov_error,
-                                                 os.path.join(result_freq_dir, 'vlm_rec_map.pdf')),
-                              dict(vmin=1e-2, vmax=1e3))
+                              os.path.join(result_freq_dir, 'vlm_rec_map.pdf')),
+                              dict(vmin=1e-5, vmax=1e-2))
 
-        plot_pool.apply_async(plot_vlm, (ll2, mm2, vlm_rec, os.path.join(result_freq_dir, 'vlm_rec.pdf')))
-        plot_pool.apply_async(plot_vlm, (ll2, mm2, vlm_rec_noise, os.path.join(result_freq_dir, 'vlm_rec_noise.pdf')))
+        plot_pool.apply_async(plot_vlm, (ll2, mm2, alm_rec, os.path.join(result_freq_dir, 'vlm_rec.pdf')))
+        plot_pool.apply_async(plot_vlm, (ll2, mm2, alm_rec_noise,
+                              os.path.join(result_freq_dir, 'vlm_rec_noise.pdf')))
 
         plot_pool.apply_async(plot_vlm, (ll2, mm2, 4 * np.pi * cov_error,
                               os.path.join(result_freq_dir, 'vlm_cov_error.pdf')))
 
         # plot visibilities
-        plot_pool.apply_async(plot_vis_diff, (ru, Vobs, Vrec, os.path.join(result_freq_dir, 'vis_minus_vis_rec.pdf')))
+        plot_pool.apply_async(plot_vis_diff, (ru, Vobs, Vrec,
+                              os.path.join(result_freq_dir, 'vis_minus_vis_rec.pdf')))
 
         # plot output sky
         plot_pool.apply_async(plot_sky_cart, (alm_rec, ll2, mm2, config.nside),
@@ -1512,10 +1560,10 @@ def do_inversion_gridded(config, result_dir):
 
         # plot power spectra
         plot_pool.apply_async(plot_rec_power_sepctra, (ll2, mm2, alm_rec,
-                                                       os.path.join(result_freq_dir, 'angular_power_spectra.pdf')))
+                              os.path.join(result_freq_dir, 'angular_power_spectra.pdf')))
 
         plot_pool.apply_async(plot_vis_vs_vis_rec, (ru, Vobs, Vrec,
-                                                    os.path.join(result_freq_dir, 'vis_vs_vis_rec.pdf')))
+                              os.path.join(result_freq_dir, 'vis_vs_vis_rec.pdf')))
 
         print nputils.stat(Vobs - Vrec)
 
@@ -1526,6 +1574,8 @@ def do_inversion_gridded(config, result_dir):
         print "Done in %.2f s" % (time.time() - t)
 
     global_ylm.close()
+
+    np.save(os.path.join(result_dir, 'freqs'), freqs)
 
     if len(alms_rec) > 1:
         plot_2d_power_spectra(ll2, mm2, alms_rec, freqs, config, os.path.join(result_dir, 'power_spectra_2d.pdf'),
