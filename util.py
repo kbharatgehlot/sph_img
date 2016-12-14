@@ -12,7 +12,10 @@ import tables
 
 import numpy as np
 from astropy import constants as const
+import astropy.wcs as pywcs
+import astropy.io.fits as pf
 from scipy.special import sph_jn
+
 from libwise import nputils, plotutils
 
 import healpy as hp
@@ -24,9 +27,10 @@ from scipy import weave
 
 from scipy import signal
 from scipy import interpolate
-
+from scipy import stats
 
 import Ylm
+
 
 LOFAR_STAT_POS = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'statpos.data')
 
@@ -35,6 +39,61 @@ NUM_POOL = int(os.environ.get('OMP_NUM_THREADS', 2))
 nputils.set_random_seed(10)
 
 ne.set_num_threads(NUM_POOL)
+
+
+def write_fits_gridded_visibilities(file, data, du, freq, dfreq):
+    nx, ny = data.shape
+    wcs = pywcs.WCS(naxis=4)
+
+    # crpix is with origin 1:
+    wcs.wcs.crpix = [nx / 2 + 1, ny / 2 + 1, 1, 1]
+    wcs.wcs.crval = [0, 0, freq, 1]
+    wcs.wcs.cdelt = [du, du, dfreq, 1]
+    wcs.wcs.ctype = ['U---WAV', 'V---WAV', 'FREQ', 'STOCKES']
+
+    hdu = pf.PrimaryHDU(data[np.newaxis, np.newaxis])
+    hdu.data.flags.writeable = True
+    header = wcs.to_header()
+    hdu.header.update(header)
+
+    hdulist = pf.HDUList([hdu])
+    hdulist.writeto(file, clobber=True)
+
+
+def write_gridded_visibilities(dirname, basename, V, config, freq, dfreq, sort_idx=None):
+    g_real = os.path.join(dirname, basename + '_GR.fits')
+    g_imag = os.path.join(dirname, basename + '_GI.fits')
+
+    du = config.cart_du
+    n = np.ceil(2 * config.uv_rumax / du)
+
+    u = du * np.arange(-n / 2, n / 2)
+    v = du * np.arange(-n / 2, n / 2)
+
+    n = len(u)
+
+    g_uu, g_vv = np.meshgrid(u, v)
+    g_uu = g_uu.flatten()
+    g_vv = g_vv.flatten()
+
+    g_ru = np.sqrt(g_uu ** 2 + g_vv ** 2)
+
+    idx = (g_ru > config.uv_rumin) & (g_ru < config.uv_rumax)
+    # if sort_idx is None:
+    #     sort_idx = slice(None)
+    sort_idx = nputils.sort_index(g_ru[idx])
+
+    flat_data = np.zeros_like(g_uu, dtype=np.complex)
+    flat_nz_data = flat_data[idx]
+    flat_nz_data[sort_idx] = V
+    flat_data[idx] = flat_nz_data
+
+    data = flat_data.reshape(n, n)
+
+    write_fits_gridded_visibilities(g_real, data.real, du, freq, dfreq)
+    write_fits_gridded_visibilities(g_imag, data.imag, du, freq, dfreq)
+
+    return data
 
 
 class Alm2VisTransMatrix(object):
@@ -115,12 +174,13 @@ class Alm2VisTransMatrix(object):
             jn = get_jn_fast_weave(ylm_m0_l_odd.ll, ylm_m0_l_odd.rb / lamb)
             ne.evaluate('- 4 * pi * p_m0 * r * jn', out=self.T_i[:i1, :])
 
-        r = ylm_lm_odd.data.real
-        i = ylm_lm_odd.data.imag
-        jn = get_jn_fast_weave(ylm_lm_odd.ll, ylm_lm_odd.rb / lamb)
+        if len(ylm_lm_odd.ll) > 0:
+            r = ylm_lm_odd.data.real
+            i = ylm_lm_odd.data.imag
+            jn = get_jn_fast_weave(ylm_lm_odd.ll, ylm_lm_odd.rb / lamb)
 
-        ne.evaluate('-4 * pi * p_mp * 2 * r * jn', out=self.T_i[i1:i1 + i2, :])
-        ne.evaluate('-4 * pi * p_mp * -2 * i * jn', out=self.T_i[i1 + i2:i1 + i2 + i2, :])
+            ne.evaluate('-4 * pi * p_mp * 2 * r * jn', out=self.T_i[i1:i1 + i2, :])
+            ne.evaluate('-4 * pi * p_mp * -2 * i * jn', out=self.T_i[i1 + i2:i1 + i2 + i2, :])
 
     def split(self, alm):
         ''' Split the alm to be used to recover Re(V) and Im(V) independently'''
@@ -157,6 +217,9 @@ class AbstractMatrix(object):
 
     def build_matrix(self, array):
         pass
+
+    def get_full(self):
+        return self.data
 
     def get(self, rows, cols):
         rows_uniq, rev_row_idx = np.unique(rows, return_inverse=True)
@@ -262,34 +325,16 @@ class AbstractCachedMatrix(object):
             self.h5_file.close()
 
 
-class GenericCachedMatrixMultiProcess(AbstractCachedMatrix, AbstractMatrix):
-
-    def __init__(self, name, rows, cols, cache_dir, row_func, dtype=np.dtype(np.float64),
-                 force_build=False):
-        self.row_func = row_func
-        AbstractCachedMatrix.__init__(self, name, cache_dir, force_build=force_build)
-        AbstractMatrix.__init__(self, rows, cols, dtype)
-
-    def build_matrix(self, array):
-        pool = Pool(processes=NUM_POOL)
-
-        results_async = [pool.apply_async(self.row_func, (row, self.cols)) for row in self.rows]
-        for i, result in enumerate(results_async):
-            array[i, :] = result.get()
-
-        pool.close()
-
-
 class YlmCachedMatrix(AbstractCachedMatrix, AbstractMatrix):
 
     def __init__(self, ll, mm, phis, thetas, cache_dir, dtype=np.dtype(np.complex128),
                  force_build=False, keep_in_mem=False, compress=None):
-        rows, row_idx = np.unique(int_pairing(ll, mm), return_index=True)
-        cols, col_idx = np.unique(real_pairing(phis, thetas), return_index=True)
-        self.ll = ll[row_idx]
-        self.mm = mm[row_idx]
-        self.phis = phis[col_idx]
-        self.thetas = thetas[col_idx]
+        self.ll = ll
+        self.mm = mm
+        self.phis = phis
+        self.thetas = thetas
+        rows = int_pairing(ll, mm)
+        cols = real_pairing(phis, thetas)
 
         AbstractCachedMatrix.__init__(self, 'ylm', cache_dir, force_build=force_build,
                                       keep_in_mem=keep_in_mem, compress=compress)
@@ -611,8 +656,9 @@ def get_lm_map(alm, ll, mm):
     return ma
 
 
-def alm2map(alm, ll, mm, thetas, phis):
-    ylm = get_ylm(ll, mm, phis, thetas)
+def alm2map(alm, ll, mm, thetas, phis, ylm=None):
+    if ylm is None:
+        ylm = get_ylm(ll, mm, phis, thetas)
     a = np.dot(alm[mm == 0], ylm[mm == 0, :])
     b = 2 * (np.dot(alm.real[mm != 0], ylm.real[mm != 0, :]) - np.dot(alm.imag[mm != 0], ylm.imag[mm != 0, :]))
     return a + b
@@ -647,6 +693,63 @@ def get_power_spectra(alm, ll, mm):
     l_uniq = np.unique(ll)
     # return np.array([np.sum(np.abs(alm[ll == l]) ** 2) / (2 * np.sum(ll == l)) for l in l_uniq])
     return np.array([np.sum(np.abs(alm[ll == l]) ** 2) / (l + 1) for l in l_uniq])
+
+
+def bin_data(x, y, nbins):
+    m, bins_edges, _ = stats.binned_statistic(x, y, 'mean', nbins)
+    bins = np.array([(a + b) / 2. for a, b in nputils.pairwise(bins_edges)])
+
+    return bins, m
+
+
+def get_power_spectra_cart(cart_map, res, el):
+    m_u = 1 / res * np.linspace(-1 / 2., 1 / 2., cart_map.shape[0])
+    m_v = 1 / res * np.linspace(-1 / 2., 1 / 2., cart_map.shape[1])
+    m_uu, m_vv = np.meshgrid(m_u, m_v)
+
+    l = [(a - (b - a) / 2., b + (b - a) / 2.) for a, b in nputils.pairwise(el)]
+    bins_edges = np.array([k[0] for k in l] + [l[-2][1], l[-1][1]]) / (2 * np.pi)
+
+    _, ps_rec_cart = bin_data(np.sqrt(m_uu ** 2 + m_vv ** 2).flatten(),
+                              np.abs(np.fft.fftshift(np.fft.ifft2(cart_map) ** 2).flatten()),
+                              bins_edges)
+
+    return ps_rec_cart
+
+
+def alm_to_cartmap(alm, ll, mm, res, nx, ny, cache_dir='cache'):
+    thxval = res * np.arange(-nx / 2., nx / 2.)
+    thyval = res * np.arange(-ny / 2., ny / 2.)
+    thx, thy = np.meshgrid(thxval, thyval)
+
+    thz = np.sqrt(1 - thx ** 2 - thy ** 2)
+    rs, phis, thetas = cart2sph(thx, thy, np.ones_like(thx))
+
+    # ylm = util.get_ylm(ll, mm, phis.flatten(), thetas.flatten())
+    ylm_obj = YlmCachedMatrix(ll, mm, phis.flatten(), thetas.flatten(), cache_dir, keep_in_mem=True)
+    ylm = ylm_obj.get_full()
+
+    a = np.dot(alm[mm == 0], ylm[mm == 0, :])
+    b = 2 * (np.dot(alm.real[mm != 0], ylm.real[mm != 0, :]) - np.dot(alm.imag[mm != 0], ylm.imag[mm != 0, :]))
+    cart_map = a + b
+
+    ylm_obj.close()
+    del ylm
+
+    return cart_map.reshape(nx, ny).real
+
+
+def filter_cart_map(cart_map, res, umin, umax):
+    m_u = 1 / res * np.linspace(-1 / 2., 1 / 2., cart_map.shape[0])
+    m_v = 1 / res * np.linspace(-1 / 2., 1 / 2., cart_map.shape[1])
+    m_uu, m_vv = np.meshgrid(m_u, m_v)
+
+    m_ru = np.sqrt(m_uu ** 2 + m_vv ** 2)
+
+    ft = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(cart_map)))
+    ft[(m_ru <= umin) | (m_ru >= umax)] = 0
+
+    return np.fft.fftshift(np.fft.ifft2(np.fft.fftshift(ft)).real)
 
 
 def get_2d_power_spectra(alms, ll, mm, freqs, ft=False):
@@ -738,13 +841,16 @@ def gaussian_beam(thetas, fwhm):
     return gaussian_sph
 
 
-def sinc2_beam(thetas, fwhm, null_below_horizon=True):
+def sinc2_beam(thetas, fwhm, null_below_horizon=True, n_sidelibe=None):
     # fwhm in radians, centered at NP
     hwhm = fwhm / 2.
     sinc_sph = (np.sin((thetas * 1.4 / hwhm)) / (thetas * 1.4 / hwhm)) ** 2
 
     if null_below_horizon:
         sinc_sph[thetas > np.pi / 2.] = 0
+
+    if n_sidelibe is not None:
+        sinc_sph[thetas > hwhm / 1.4 * np.pi * (n_sidelibe + 1)] = 0
 
     return sinc_sph
 
@@ -1115,7 +1221,7 @@ def test_uv_cov():
 
     # freqs = np.arange(110, 130, 5)
     freqs = [145.]
-    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 45, 165, 10, min_max_is_baselines=False)
+    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 30, 70, 1500, min_max_is_baselines=False)
     plt.figure()
     colors = plotutils.ColorSelector()
     uphis = []

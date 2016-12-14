@@ -7,6 +7,7 @@ import multiprocessing
 
 import numpy as np
 import pandas as pd
+import healpy as hp
 
 import matplotlib.pyplot as plt
 from matplotlib.image import AxesImage
@@ -17,13 +18,11 @@ from libwise import scriptshelper as sh
 from scipy.sparse.linalg import cg
 from scipy.sparse import block_diag, diags
 from scipy.fftpack import dct, idct
+
 from psparse import pmultiply
 
 import astropy.constants as const
 import astropy.io.fits as pyfits
-import astropy.wcs as pywcs
-
-import healpy as hp
 
 
 import util
@@ -105,6 +104,42 @@ def plot_sky_cart_diff(alm1, alm2, ll1, mm1, ll2, mm2, nside, theta_max=0.35, sa
         plt.close(fig)
 
 
+def plot_cart_map(cart_map, theta_max, ax=None, title=None):
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    cbs = plotutils.ColorbarSetting(plotutils.ColorbarOutterPosition(location='top', pad='10%'))
+
+    extent = np.degrees(np.array([-theta_max, theta_max, -theta_max, theta_max]))
+
+    im_mappable = ax.imshow(cart_map, extent=extent)
+    cbs.add_colorbar(im_mappable, ax)
+    # ax.set_xlabel('DEC (deg)')
+    # ax.set_ylabel('RA (deg)')
+
+    if title is not None:
+        ax.set_title(title)
+
+
+def plot_cart_map_diff(cart_map, cart_map_rec, config, savefile=None):
+    fig, (ax1, ax2, ax3) = plt.subplots(ncols=3, figsize=(12, 5))
+
+    theta_max = config.ft_inv_res * config.ft_inv_ny / 2.
+
+    plot_cart_map(cart_map, theta_max, ax=ax1)
+    plot_cart_map(cart_map_rec, theta_max, ax=ax2)
+    plot_cart_map(cart_map - cart_map_rec, theta_max, ax=ax3)
+
+    diff = cart_map - cart_map_rec
+    ax3.text(0.92, 0.05, 'rms residual: %.3e\nmax residual: %.3e' % (diff.std(), diff.max()),
+             ha='right', va='center', transform=ax3.transAxes)
+
+    if savefile is not None:
+        fig.tight_layout()
+        fig.savefig(savefile)
+        plt.close(fig)
+
+
 def plot_uv_cov(uu, vv, ww, config, title, savefile=None):
     fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 5))
     ax1.scatter(uu, vv)
@@ -148,19 +183,19 @@ def plot_2d_visibilities(uu, vv, V, savefile=None):
 
     cbs = plotutils.ColorbarSetting(plotutils.ColorbarOutterPosition())
 
-    mappable = ax1.scatter(uu, vv, c=V.real, lw=0)
+    mappable = ax1.scatter(uu, vv, c=abs(V), lw=0)
     ax1.set_xlabel('U')
     ax1.set_xlabel('V')
-    ax1.set_title('Real')
+    ax1.set_title('Abs')
 
     cbs.add_colorbar(mappable, ax1)
 
-    mappable = ax2.scatter(uu, vv, c=V.imag, lw=0)
+    mappable = ax2.scatter(uu, vv, c=np.angle(V), lw=0)
     ax2.set_xlabel('U')
     ax2.set_xlabel('V')
-    ax2.set_title('Imaginary')
+    ax2.set_title('Phase')
 
-    cbs.add_colorbar(mappable, ax1)
+    cbs.add_colorbar(mappable, ax2)
 
     if savefile is not None:
         fig.savefig(savefile)
@@ -338,38 +373,80 @@ def plot_rec_power_sepctra(ll, mm, alm, savefile=None):
         plt.close(fig)
 
 
-def plot_power_spectra(ll, mm, alm, alm_rec, config, savefile=None):
+def plot_power_spectra(ll, mm, alm, alm_rec, config, alm_rec_noise=None, savefile=None):
     el = np.unique(ll)
 
-    if config.beam_type == 'gaussian':
-        omega = np.pi * nputils.gaussian_fwhm_to_sigma(config.fwhm) ** 2.
-    else:
+    if config.beam_type == 'tophat':
         omega = config.fwhm ** 2
+    else:
+        omega = np.pi * nputils.gaussian_fwhm_to_sigma(config.fwhm) ** 2.
 
     pb_corr = 4 * np.pi / omega
 
     ps_rec = util.get_power_spectra(alm_rec, ll, mm) * pb_corr
     ps = util.get_power_spectra(alm, ll, mm) * pb_corr
+    ps_rec_err = util.get_power_spectra(alm - alm_rec, ll, mm) * pb_corr
 
-    fig = plt.figure()
-    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 5))
-    ax1.plot(np.arange(config.lmax + 1), config.cl, label='Input power spectra')
-    ax1.plot(el, ps, label='Beam modulated input power spectra')
-    ax1.plot(el, ps_rec, label='Recovered power spectra', marker='+')
-    ax1.set_xscale('log')
-    ax1.set_yscale('log')
-    ax1.set_xlabel('l')
-    ax1.set_ylabel('cl')
-    ax1.set_xlim(min(el), max(el))
-    ax1.legend()
+    if alm_rec_noise is not None:
+        ps_rec_noise = util.get_power_spectra(alm_rec_noise, ll, mm) * pb_corr
 
-    diff = ps_rec - ps
-    # print nputils.stat(diff)
-    ax2.plot(el, diff, ls='', marker='+')
-    ax2.set_xlabel('l')
-    ax2.set_ylabel('diff')
-    ax2.text(0.95, 0.05, 'std diff: %.3e\nmax diff: %.3e' % (diff.std(), diff.max()),
-             ha='right', va='center', transform=ax2.transAxes)
+    fig, ax = plt.subplots()
+    ax.plot(np.arange(config.lmax + 1), config.cl, label='Input PS')
+    ax.plot(el, ps, label='Input sky')
+    ax.plot(el, ps_rec, label='Stokes I', marker='+')
+    ax.plot(el, ps_rec_err, label='(I - sky)', marker='+')
+
+    if alm_rec_noise is not None:
+        ax.plot(el, ps_rec_noise, label='Stokes V', marker='+')
+        ax.plot(el, abs(ps_rec_err - ps_rec_noise), label='(I - sky) - V', marker='+')
+
+    ax.set_yscale('log')
+    ax.set_xlabel('l')
+    ax.set_ylabel('cl')
+    ax.set_xlim(min(el), max(el))
+    ax.legend()
+
+    if savefile is not None:
+        fig.tight_layout()
+        fig.savefig(savefile)
+        plt.close(fig)
+
+
+def plot_cart_power_spectra(cart_map, cart_map_rec, ll, config, cart_map_rec_noise=None, savefile=None):
+    el = np.unique(ll)
+    nx, ny = cart_map.shape
+    res = config.ft_inv_res
+
+    thxval = res * np.arange(-nx / 2., nx / 2.)
+    thyval = res * np.arange(-ny / 2., ny / 2.)
+    thx, thy = np.meshgrid(thxval, thyval)
+
+    fov_map = (config.ft_inv_res * config.ft_inv_nx) ** 2
+    beam_map = util.gaussian_beam(np.sqrt(thx ** 2 + thy ** 2), config.fwhm)
+    pb_corr = fov_map / (beam_map ** 2).mean()
+
+    ps_rec = util.get_power_spectra_cart(cart_map_rec, res, el) * pb_corr
+    ps = util.get_power_spectra_cart(cart_map, res, el) * pb_corr
+    ps_rec_err = util.get_power_spectra_cart(cart_map - cart_map_rec, res, el) * pb_corr
+
+    if cart_map_rec_noise is not None:
+        ps_rec_noise = util.get_power_spectra_cart(cart_map_rec_noise, res, el) * pb_corr
+
+    fig, ax = plt.subplots()
+    ax.plot(np.arange(config.lmax + 1), config.cl, label='Input PS')
+    ax.plot(el, ps, label='Input sky')
+    ax.plot(el, ps_rec, label='Stokes I', marker='+')
+    ax.plot(el, ps_rec_err, label='(I - sky)', marker='+')
+
+    if cart_map_rec_noise is not None:
+        ax.plot(el, ps_rec_noise, label='Stokes V', marker='+')
+        ax.plot(el, abs(ps_rec_err - ps_rec_noise), label='(I - sky) - V', marker='+')
+
+    ax.set_yscale('log')
+    ax.set_xlabel('l')
+    ax.set_ylabel('cl')
+    ax.set_xlim(min(el), max(el))
+    ax.legend()
 
     if savefile is not None:
         fig.tight_layout()
@@ -525,8 +602,9 @@ def simulate_sky(config):
         beam = util.gaussian_beam(thetas, fwhm)
 
     elif config.beam_type == 'sinc2':
-        print 'Using a sinc2 beam with fwhm = %.3f rad' % fwhm
-        beam = util.sinc2_beam(thetas, fwhm)
+        n_sidelibe = config.beam_sinc_n_sidelobe
+        print 'Using a sinc2 beam with fwhm = %.3f rad and %s sidelobes' % (fwhm, n_sidelibe)
+        beam = util.sinc2_beam(thetas, fwhm, n_sidelibe=n_sidelibe)
 
     elif config.beam_type == 'tophat':
         print 'Using a tophat beam with width = %.3f rad' % fwhm
@@ -555,8 +633,6 @@ def simulate_sky(config):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             full_map, alm = hp.synfast(config.cl, config.nside, alm=True, lmax=lmax, verbose=False)
-
-        full_map = full_map + abs(full_map.min())
 
         full_maps = [full_map * a for a in config.cl_freq]
 
@@ -670,6 +746,7 @@ def get_out_lm_sampling(config):
 
 def interpolate_lm_odd(alm, ll, mm, config):
     prev = config.out_lm_even_only
+    config.out_dl = 1
     config.out_lm_even_only = False
     ll2, mm2 = get_out_lm_sampling(config)
     config.out_lm_even_only = prev
@@ -858,6 +935,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
     if config.compute_alm_noise:
         print '\nComputing alm noise ...',
         start = time.time()
+        np.random.seed(config.vis_rnd_seed)
         rhs_noise_r = np.dot(X_r_dot_C_Dinv, config.noiserms * np.random.randn(len(Vobs)))
         rhs_noise_i = np.dot(X_i_dot_C_Dinv, config.noiserms * np.random.randn(len(Vobs)))
 
@@ -873,6 +951,56 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
         alm_rec_noise = np.zeros_like(alm_rec)
 
     return alm_rec, alm_rec_noise, Vrec, cov_error
+
+
+def ft_ml_inversion(uu, vv, ww, Vobs, config, include_pb=False):
+    print '\nML inversion with FT kernel'
+    Nx = config.ft_inv_nx
+    Ny = config.ft_inv_ny
+
+    delthx = config.ft_inv_res
+    delthy = config.ft_inv_res
+
+    thxval = delthx * np.arange(-Nx / 2., Nx / 2.)
+    thyval = delthy * np.arange(-Ny / 2., Ny / 2.)
+
+    thx, thy = np.meshgrid(thxval, thyval)
+    # Reconstruction phase kernel with w term
+    start = time.time()
+    l = np.sin(thx.flatten())
+    m = np.sin(thy.flatten())
+    n = np.sqrt(1 - l ** 2 - m ** 2)
+    phaser = 1 / n * np.exp(-2 * np.pi * 1j * (uu[:, np.newaxis] * l +
+                                               vv[:, np.newaxis] * m +
+                                               ww[:, np.newaxis] * n))
+
+    print 'Size of the phase kernel: %s X %s' % (phaser.shape[0], phaser.shape[1])
+
+    # Phase matrix including PB (multiplying the PB in each row of the phase matrix)
+    if include_pb:
+        beam = util.gaussian_beam(np.sqrt(thx ** 2 + thy ** 2), config.fwhm)
+        phaser = np.multiply(phaser, beam.flatten())
+
+    print 'Time to build the Fourier kernel: %.3f s' % (time.time() - start)
+
+    # ML inversion.
+    # Use a sparse matrix for C_Dinv here, no need to create a 100kx100k matrix.
+    if isinstance(config.noiserms, np.ndarray):
+        C_Dinv = diags(1 / (config.noiserms ** 2))
+    else:
+        C_Dinv = diags([1 / (config.noiserms ** 2)] * len(Vobs))
+
+    phaser_dot_C_Dinv = C_Dinv.T.dot(np.conjugate(phaser)).T
+    lhs = np.dot(phaser_dot_C_Dinv, phaser)
+    rhs = np.dot(phaser_dot_C_Dinv, Vobs)
+
+    print '\nStarting CG inversion ...',
+    start = time.time()
+    X_ML, info = cg(lhs, rhs, tol=config.cg_tol, maxiter=config.cg_maxiter)
+    res = np.linalg.norm(rhs - np.dot(lhs, abs(X_ML))) / np.linalg.norm(rhs)
+    print 'Done in %.2f s. Status: %s, Residual: %s' % (time.time() - start, info, res)
+
+    return np.real(X_ML.reshape(Nx, Ny))
 
 
 def alm_post_processing(alm, ll, mm, config):
@@ -894,7 +1022,7 @@ def get_config(dirname):
 
 def save_data(filename, data, columns_name):
     df = pd.DataFrame(dict(zip(columns_name, data)))
-    df.to_csv(filename)
+    df.to_csv(filename, index=False)
 
 
 def check_file_compressed(filename, extensions=['.gz', '.xz']):
@@ -1134,10 +1262,11 @@ def read_gridded_config(weighting_file, config):
     return uu, vv, weights
 
 
-def get_gridded_visibilities(config, V, uu, vv):
-    f_w = pyfits.open(config.gridded_weights)
-    du = f_w[0].header['CDELT1']
-    n = f_w[0].header['NAXIS1']
+def get_gridded_visibilities(config, V, uu, vv, du=None, n=None):
+    if du is None:
+        f_w = pyfits.open(config.gridded_weights)
+        du = f_w[0].header['CDELT1']
+        n = f_w[0].header['NAXIS1']
 
     u = du * np.arange(-n / 2, n / 2)
     v = du * np.arange(-n / 2, n / 2)
@@ -1212,59 +1341,10 @@ def read_gridded_visbilities(filename, config):
         w = pyfits.open(weighting)[0].data[0][0]
         w = w[idx_u, idx_v].flatten()[idx]
         noiserms = (config.SEFD / np.sqrt(2. * delnu * config.Int_time)) / np.sqrt(w)
+    else:
+        noiserms = config.noiserms
 
     return freq, uu, vv, vis, noiserms
-
-
-def write_fits_gridded_visibilities(file, data, du, freq, dfreq):
-    nx, ny = data.shape
-    wcs = pywcs.WCS(naxis=4)
-
-    # crpix is with origin 1:
-    wcs.wcs.crpix = [nx / 2 + 1, ny / 2 + 1, 1, 1]
-    wcs.wcs.crval = [0, 0, freq, 1]
-    wcs.wcs.cdelt = [du, du, dfreq, 1]
-    wcs.wcs.ctype = ['U---WAV', 'V---WAV', 'FREQ', 'STOCKES']
-
-    hdu = pyfits.PrimaryHDU(data[np.newaxis, np.newaxis])
-    hdu.data.flags.writeable = True
-    header = wcs.to_header()
-    hdu.header.update(header)
-
-    hdulist = pyfits.HDUList([hdu])
-    hdulist.writeto(file, clobber=True)
-
-
-def write_gridded_visibilities(dirname, basename, V, config, freq, dfreq):
-    g_real = os.path.join(dirname, basename + '_GR.fits')
-    g_imag = os.path.join(dirname, basename + '_GI.fits')
-
-    du = config.cart_du
-    n = np.ceil(2 * config.uv_rumax / du)
-
-    u = du * np.arange(-n / 2, n / 2)
-    v = du * np.arange(-n / 2, n / 2)
-
-    n = len(u)
-
-    g_uu, g_vv = np.meshgrid(u, v)
-    g_uu = g_uu.flatten()
-    g_vv = g_vv.flatten()
-
-    g_ru = np.sqrt(g_uu ** 2 + g_vv ** 2)
-
-    idx = (g_ru > config.uv_rumin) & (g_ru < config.uv_rumax)
-    sort_idx = nputils.sort_index(g_ru[idx])
-
-    flat_data = np.zeros_like(g_uu, dtype=np.complex)
-    flat_nz_data = flat_data[idx]
-    flat_nz_data[sort_idx] = V
-    flat_data[idx] = flat_nz_data
-
-    data = flat_data.reshape(n, n)
-
-    write_fits_gridded_visibilities(g_real, data.real, du, freq, dfreq)
-    write_fits_gridded_visibilities(g_imag, data.imag, du, freq, dfreq)
 
 
 def do_inversion(config, result_dir):
@@ -1347,40 +1427,15 @@ def do_inversion(config, result_dir):
         else:
             print "Noise in visibility: %.3f Jy" % config.noiserms
 
-        np.random.seed(None)
-        Vobs = V + config.noiserms * np.random.randn(len(V)) + 1j * config.noiserms * np.random.randn(len(V))
+        np.random.seed(config.vis_rnd_seed)
+        Vnoise = config.noiserms * np.random.randn(len(V)) + 1j * config.noiserms * np.random.randn(len(V))
+        Vobs = V + Vnoise
 
         # plotting the visibilities
         plot_pool.apply_async(plot_visibilities, (uu, vv, ww, V, os.path.join(result_freq_dir, 'vis_from_vlm.pdf')))
 
-        if config.uv_type == 'gridded':
-            if config.uv_type == 'gridded':
-                print "Number total of visibilities:", np.sum(config.weights)
-            g_Vobs = get_gridded_visibilities(config, Vobs, uu, vv) * jy2k
-            g_V = get_gridded_visibilities(config, V, uu, vv) * jy2k
-
-            fig, ax = plt.subplots()
-            cbs = plotutils.ColorbarSetting(plotutils.ColorbarOutterPosition())
-            extent = np.array([-5, 5, -5, 5])
-
-            dmap_obs = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(g_Vobs)))
-            im_mappable = ax.imshow(dmap_obs.real, extent=extent)
-            cbs.add_colorbar(im_mappable, ax)
-            # ax1.set_xlabel('DEC (deg)')
-            ax.set_ylabel('RA (deg)')
-            ax.set_title('FFT(Vobs) Stokes I')
-            fig.savefig(os.path.join(result_dir, 'dirty_map.pdf'))
-            plt.close(fig)
-
-            fig, ax = plt.subplots()
-            dmap = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(g_V)))
-            im_mappable = ax.imshow(dmap.real - dmap_obs.real, extent=extent)
-            cbs.add_colorbar(im_mappable, ax)
-            # ax1.set_xlabel('DEC (deg)')
-            ax.set_ylabel('RA (deg)')
-            ax.set_title('FFT(Vobs) Stokes I')
-            fig.savefig(os.path.join(result_dir, 'diff_dirty_map.pdf'))
-            plt.close(fig)
+        plot_pool.apply_async(plot_2d_visibilities, (uu, vv, Vobs,
+                                                     os.path.join(result_freq_dir, 'visibilities_2d.pdf')))
 
         idx = util.get_lm_selection_index(inp_ll, inp_mm, sel_ll, sel_mm)
 
@@ -1422,6 +1477,23 @@ def do_inversion(config, result_dir):
         vlm_rec = util.alm2vlm(alm_rec, sel_ll)
         vlm_rec_noise = util.alm2vlm(alm_rec_noise, sel_ll)
 
+        if config.do_ft_inv:
+            print "Starting FT ML inversion ..."
+            cart_map = util.alm_to_cartmap(alm, inp_ll, inp_mm, config.ft_inv_res,
+                                           config.ft_inv_nx, config.ft_inv_ny,
+                                           cache_dir=config.cache_dir)
+            ml_cart_map_rec = ft_ml_inversion(uu, vv, ww, Vobs, config)
+            ml_cart_map_rec_noise = ft_ml_inversion(uu, vv, ww, Vnoise, config)
+
+            jybeam2k = (jy2k / (config.ft_inv_res ** 2))
+            res = config.ft_inv_res
+            umin = config.uv_rumin
+            umax = config.uv_rumax
+
+            cart_map = util.filter_cart_map(cart_map, res, umin, umax)
+            ml_cart_map_rec = util.filter_cart_map(ml_cart_map_rec, res, umin, umax) * jybeam2k
+            ml_cart_map_rec_noise = util.filter_cart_map(ml_cart_map_rec_noise, res, umin, umax) * jybeam2k
+
         print "Plotting result..."
         # plot vlm vs vlm_rec
         plot_pool.apply_async(plot_vlm_vs_vlm_rec, (sel_ll, sel_mm, sel_vlm, vlm_rec,
@@ -1432,8 +1504,8 @@ def do_inversion(config, result_dir):
                                                         os.path.join(result_freq_dir, 'lm_maps_imag.pdf')))
 
         # plot power spectra
-        # plot_power_spectra(sel_ll, sel_mm, sel_alm, alm_rec, config,
-        #                    os.path.join(result_freq_dir, 'angular_power_spectra.pdf'))
+        plot_power_spectra(sel_ll, sel_mm, sel_alm, alm_rec, config, alm_rec_noise,
+                           os.path.join(result_freq_dir, 'angular_power_spectra.pdf'))
 
         # plot vlm diff
         plot_pool.apply_async(plot_vlm_diff, (sel_ll, sel_mm, sel_vlm, vlm_rec, 4 * np.pi * cov_error,
@@ -1452,6 +1524,14 @@ def do_inversion(config, result_dir):
                               dict(theta_max=config.fwhm, savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
 
         # write_gridded_visibilities(result_freq_dir, 'gridded_vis', V, config, freq, 1)
+
+        # Additional plot for FT ML inv comparison
+        if config.do_ft_inv:
+            plot_cart_power_spectra(cart_map, ml_cart_map_rec, sel_ll, config, ml_cart_map_rec_noise,
+                                    savefile=os.path.join(result_freq_dir, 'power_spectra_ft_ml.pdf'))
+
+            plot_cart_map_diff(cart_map, ml_cart_map_rec, config,
+                               savefile=os.path.join(result_freq_dir, 'cart_map_ft_ml.pdf'))
 
         t = time.time()
         print "Waiting for plotting to finish...",
@@ -1542,8 +1622,8 @@ def do_inversion_gridded(config, result_dir):
                               os.path.join(result_freq_dir, 'vlm_rec_map.pdf')),
                               dict(vmin=1e-5, vmax=1e-2))
 
-        plot_pool.apply_async(plot_vlm, (ll2, mm2, alm_rec, os.path.join(result_freq_dir, 'vlm_rec.pdf')))
-        plot_pool.apply_async(plot_vlm, (ll2, mm2, alm_rec_noise,
+        plot_pool.apply_async(plot_vlm, (ll2, mm2, vlm_rec, os.path.join(result_freq_dir, 'vlm_rec.pdf')))
+        plot_pool.apply_async(plot_vlm, (ll2, mm2, vlm_rec_noise,
                               os.path.join(result_freq_dir, 'vlm_rec_noise.pdf')))
 
         plot_pool.apply_async(plot_vlm, (ll2, mm2, 4 * np.pi * cov_error,

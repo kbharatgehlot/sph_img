@@ -30,6 +30,7 @@ inp_lm_even_only = False
 
 # beam_type can be one of: gaussian, sinc2, tophat, none
 beam_type = 'gaussian'
+beam_sinc_n_sidelobe = 1
 fwhm = np.radians(10)
 
 out_theta_max = 1 * fwhm
@@ -39,6 +40,7 @@ out_theta_max = 1 * fwhm
 # =================================================================
 
 synfast_rnd_seed = 125
+vis_rnd_seed = None
 
 # The angular power spectrum profile
 cl = 5 * (np.arange(lmax + 1) + 1) ** -2.
@@ -128,6 +130,15 @@ out_dl = 1
 
 # strip mmax < sin(theta_max) * l
 out_mmax_strip = True
+
+# =================================================================
+# FT Inversion parameters
+# =================================================================
+
+do_ft_inv = False
+ft_inv_nx = 40
+ft_inv_ny = 40
+ft_inv_res = 0.5 * 1 / float(uv_rumax)
 
 # =================================================================
 # Inversion parameters

@@ -46,11 +46,11 @@ def fill_gaps(alm_cube, gaps, fill_with=np.nan):
 
 def get_gaps(freqs):
     df = freqs[1] - freqs[0]
-    return np.array(np.diff(freqs) / df - 1).astype(int)
+    return np.array(np.round(np.diff(freqs) / df) - 1).astype(int)
 
 
 def freq_to_index(freqs, start=1):
-    return ((freqs - freqs[0]) / (freqs[1] - freqs[0])).astype(int) + start
+    return np.round((freqs - freqs[0]) / (freqs[1] - freqs[0])).astype(int) + start
 
 
 def rmean(data, axis=0):
@@ -100,7 +100,7 @@ def lssa(x, y, M, w=None, dx=None):
     if dx is None:
         dx = x[1] - x[0]
 
-    k = np.fft.fftshift(np.fft.fftfreq(M, dx))
+    k = np.fft.fftshift(np.fft.fftfreq(M, float(dx)))
 
     if w is not None:
         y *= w  # [:, np.newaxis]
@@ -141,18 +141,18 @@ def get_2d_power_spectra(alm, ll, mm, freqs, M=None, window=None, dx=None, half=
     return delay, ps2d
 
 
-def get_1d_power_spectra(ps2d, k_per, k_par, ll, fwhm, bins):
-    k = np.sqrt(k_per ** 2 + k_par[:, np.newaxis] ** 2)
+def get_1d_power_spectra(ps2d, k_per, k_par, ll, fwhm, bins, k_par_start=0):
+    k = np.sqrt(k_per ** 2 + k_par[k_par_start:, np.newaxis] ** 2)
 
     # mbin = np.array([a + (b - a) / 2. for a, b in nputils.pairwise(bins)])
     k_mean, _, _ = stats.binned_statistic(k.flatten(), k.flatten(), 'mean', bins)
     k_norm = k_mean ** 3 / (2 * np.pi ** 2)
 
-    dsp, bins, _ = stats.binned_statistic(k.flatten(), ps2d.flatten(), 'mean', bins)
+    dsp, bins, _ = stats.binned_statistic(k.flatten(), ps2d[k_par_start:].flatten(), 'mean', bins)
 
     el = np.unique(ll)
     a = np.sqrt(2 * np.pi) * nputils.gaussian_fwhm_to_sigma(np.radians(fwhm))
-    mcount = np.repeat((2 * el + 1.)[np.newaxis, :] * a, ps2d.shape[0], axis=0)
+    mcount = np.repeat((2 * el + 1.)[np.newaxis, :] * a, ps2d[k_par_start:].shape[0], axis=0)
     bins_mcount, _, _ = stats.binned_statistic(k.flatten(), mcount.flatten(), 'sum', bins)
 
     dsp_err = np.sqrt(2 / bins_mcount) * dsp * k_norm
@@ -203,8 +203,8 @@ def plot_2d_power_spectra(ps, ll, delay, ax=None, title=None, kper=None, kpar=No
 
     if kper is not None:
         extent = (min(kper), max(kper), min(kpar), max(kpar))
-        ax.set_xlabel('$k_{\\bot} (h\,cMpc^{-1})$')
-        ax.set_ylabel('$k_{\parallel} (h\,cMpc^{-1})$')
+        ax.set_xlabel('$k_{\\bot} [h\,cMpc^{-1}]$')
+        ax.set_ylabel('$k_{\parallel} [h\,cMpc^{-1}]$')
         if not kper_only:
             axb = ax.twiny()
             axb.set_xlim(min(ll), max(ll))
@@ -240,29 +240,24 @@ def plot_2d_power_spectra(ps, ll, delay, ax=None, title=None, kper=None, kpar=No
 
 
 def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
-                          ll, fwhm, nsigma=2, ax=None, title=None):
+                          ll, fwhm, nsigma=2, ax=None, title=None, k_par_start=0):
     if ax is None:
         fig, ax = plt.subplots()
 
     # kbin = np.array([a + (b - a) / 2. for a, b in nputils.pairwise(bins)])
 
-    dsp_rec, dsp_rec_err, k_mean = get_1d_power_spectra(ps2d_rec, k_per, k_par, ll, fwhm, bins)
+    dsp_rec, dsp_rec_err, k_mean = get_1d_power_spectra(ps2d_rec, k_per, k_par, ll, fwhm, bins, k_par_start)
 
-    dsp_sub, dsp_sub_err, _ = get_1d_power_spectra(ps2d_sub, k_per, k_par, ll, fwhm, bins)
+    dsp_sub, dsp_sub_err, _ = get_1d_power_spectra(ps2d_sub, k_per, k_par, ll, fwhm, bins, k_par_start)
 
-    dsp_v, dsp_v_err, _ = get_1d_power_spectra(ps2d_rec_v, k_per, k_par, ll, fwhm, bins)
+    dsp_v, dsp_v_err, _ = get_1d_power_spectra(ps2d_rec_v, k_per, k_par, ll, fwhm, bins, k_par_start)
 
-    # print np.sqrt(var_dsp_v + var_dsp_rec + var_mc)
-
-    # print nsigma * np.sqrt(dsp_sub_n + dsp_cov_error) * kr
-
-    ax.errorbar(k_mean, dsp_sub, yerr=nsigma * dsp_sub_err, marker='+', label='I - model')
-    ax.errorbar(k_mean, dsp_rec, yerr=nsigma * dsp_rec_err, marker='+', label='I')
-    ax.errorbar(k_mean, dsp_v, yerr=nsigma * dsp_v_err, marker='+', label='V')
+    # ax.errorbar(k_mean, dsp_rec, yerr=nsigma * dsp_rec_err, marker='+', label='I', c=plotutils.green)
+    ax.errorbar(k_mean, dsp_sub, yerr=nsigma * dsp_sub_err, marker='+',
+                label='I - model', c=plotutils.blue)
+    ax.errorbar(k_mean, dsp_v, yerr=nsigma * dsp_v_err, marker='+', label='V', c=plotutils.red)
     ax.errorbar(k_mean, (dsp_sub - dsp_v), yerr=nsigma * np.sqrt(dsp_sub_err ** 2 + dsp_v_err ** 2),
-                marker='+', label='(I - model) - V')
-
-    print dsp_v
+                marker='o', label='(I - model) - V', c=plotutils.orange, mec=plotutils.orange, ms=4)
 
     ax.set_yscale('log')
     ax.set_xscale('log')
@@ -271,7 +266,7 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
     ax.set_xlabel('$k [h\,cMpc^{-1}]$')
 
     ax.set_xlim(bins.min(), bins.max())
-    ax.legend(loc='best')
+    ax.legend(loc=2)
 
     if title is not None:
         ax.set_title(title)

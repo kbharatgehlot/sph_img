@@ -71,7 +71,7 @@ def AMCA(X,n,maxts = 0,mints=3,nmax=100,q_f = 0.1,AMCA=0,rL1=0,L0=0,UseP=1,verb=
         indNZ = np.where(abs(S[r,:]) > 0)[0]
         gg = np.max(abs(S[r,indNZ]))/mad(S[r,indNZ])
         maxts = np.max([gg,maxts]) 
-    maxts = np.max([maxts,10.])        
+    maxts = np.max([maxts,10.])      
     S,A,PiA,WeiA,wL1 = GMCA_MainBlock(Xw,n,A,S,q_f=q_f,kend = mints,maxts=maxts,nmax=nmax,AMCA=AMCA,rL1=rL1,L0=L0,UseP=UseP,verb=verb);
 #    
     return S,A
@@ -103,7 +103,7 @@ def GMCA_MainBlock(X=0,n=0,A=0,S=0,q_f=0.1,kend=3,maxts=5,nmax=100,AMCA=0,rL1=0,
     if verb:
         print("Starting main loop ...")    
         print(" ")
-        print("  - Final k: ",kend)
+        print("  - Final k: ", k, dk, kend)
         print("  - Maximum number of iterations: ",nmax)
         if UseP:
             print("  - Using support-based threshold estimation")
