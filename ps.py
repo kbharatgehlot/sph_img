@@ -273,8 +273,10 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
 
 
 def alm_to_cartmap(alm, ll, mm, nside, theta_max, n):
-    x = theta_max * np.linspace(-1, 1, n)
-    y = theta_max * np.linspace(-1, 1, n)
+    # x = theta_max * np.linspace(-1, 1, n)
+    # y = theta_max * np.linspace(-1, 1, n)
+    x = 2 * theta_max / n * np.arange(-n / 2., n / 2.)
+    y = 2 * theta_max / n * np.arange(-n / 2., n / 2.)
     xx, yy = np.meshgrid(x, y)
     _, phis, thetas = util.cart2sph(xx, yy, np.ones_like(x))
 

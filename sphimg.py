@@ -734,7 +734,7 @@ def get_out_lm_sampling(config):
     ll, mm = util.get_lm(lmin=lmin, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
 
     if config.out_mmax_strip:
-        ll, mm = util.strip_mm(ll, mm, lambda l: np.sin(theta_max) * l)
+        ll, mm = util.strip_mm(ll, mm, lambda l: np.sin(theta_max) * l + 1)
 
     if config.out_lm_even_only:
         idx = np.logical_not(util.is_odd(ll + mm)).astype(bool)
@@ -781,9 +781,13 @@ def l_smoothing(alm, ll, mm):
     return alm_smooth
 
 
-def l_sampling(ll, mm, dl, dl_start):
+def l_sampling(ll, mm, dl, lmin=None, lmax=None):
+    if lmin is None:
+        lmin = ll.min()
+    if lmax is None:
+        lmax = ll.max()
     el = np.unique(ll)
-    ll2, mm2 = util.get_lm(ll.max(), lmin=ll.min() + dl_start, dl=int(dl), mmax=mm.max())
+    ll2, mm2 = util.get_lm(lmax, lmin=lmin, dl=int(dl), mmax=mm.max())
     mm2 = mm2[ll2 >= min(ll)]
     ll2 = ll2[ll2 >= min(ll)]
     mmax = np.zeros(ll.max() + 1)
@@ -1478,7 +1482,7 @@ def do_inversion(config, result_dir):
         vlm_rec_noise = util.alm2vlm(alm_rec_noise, sel_ll)
 
         if config.do_ft_inv:
-            print "Starting FT ML inversion ..."
+            print "\nStarting FT ML inversion ..."
             cart_map = util.alm_to_cartmap(alm, inp_ll, inp_mm, config.ft_inv_res,
                                            config.ft_inv_nx, config.ft_inv_ny,
                                            cache_dir=config.cache_dir)

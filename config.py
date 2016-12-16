@@ -187,7 +187,8 @@ do_l_smoothing = True
 # Save only a sampled set of all lm modes
 do_l_sampling = True
 l_sampling_dl = dct_dl
-l_sampling_dl_start = 0
+l_sampling_lmin = out_lmin
+l_sampling_lmax = out_lmax
 
 # =================================================================
 # General parameters
