@@ -734,7 +734,7 @@ def get_out_lm_sampling(config):
     ll, mm = util.get_lm(lmin=lmin, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
 
     if config.out_mmax_strip:
-        ll, mm = util.strip_mm(ll, mm, lambda l: np.sin(theta_max) * l + 1)
+        ll, mm = util.strip_mm(ll, mm, lambda l: np.sin(theta_max) * l)
 
     if config.out_lm_even_only:
         idx = np.logical_not(util.is_odd(ll + mm)).astype(bool)
