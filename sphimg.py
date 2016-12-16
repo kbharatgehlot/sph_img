@@ -405,6 +405,7 @@ def plot_power_spectra(ll, mm, alm, alm_rec, config, alm_rec_noise=None, savefil
     ax.set_ylabel('cl')
     ax.set_xlim(min(el), max(el))
     ax.legend()
+    plotutils.autoscale_y(ax)
 
     if savefile is not None:
         fig.tight_layout()
@@ -447,6 +448,7 @@ def plot_cart_power_spectra(cart_map, cart_map_rec, ll, config, cart_map_rec_noi
     ax.set_ylabel('cl')
     ax.set_xlim(min(el), max(el))
     ax.legend()
+    plotutils.autoscale_y(ax)
 
     if savefile is not None:
         fig.tight_layout()
@@ -668,7 +670,7 @@ def sample_input_alm(config, alms, ll, mm):
     theta_max = config.out_theta_max
 
     if config.inp_mmax_strip:
-        ll_inp, mm_inp = util.strip_mm(ll_inp, mm_inp, lambda l: np.sin(theta_max) * l)
+        ll_inp, mm_inp = util.strip_mm(ll_inp, mm_inp, lambda l: np.sin(theta_max) * l + config.out_mmax_bias)
 
     if config.inp_lm_even_only:
         idx = np.logical_not(util.is_odd(ll_inp + mm_inp)).astype(bool)
@@ -734,7 +736,7 @@ def get_out_lm_sampling(config):
     ll, mm = util.get_lm(lmin=lmin, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
 
     if config.out_mmax_strip:
-        ll, mm = util.strip_mm(ll, mm, lambda l: np.sin(theta_max) * l)
+        ll, mm = util.strip_mm(ll, mm, lambda l: np.sin(theta_max) * l + config.out_mmax_bias)
 
     if config.out_lm_even_only:
         idx = np.logical_not(util.is_odd(ll + mm)).astype(bool)
@@ -1483,20 +1485,21 @@ def do_inversion(config, result_dir):
 
         if config.do_ft_inv:
             print "\nStarting FT ML inversion ..."
+            jybeam2k = (jy2k / (config.ft_inv_res ** 2))
+
             cart_map = util.alm_to_cartmap(alm, inp_ll, inp_mm, config.ft_inv_res,
                                            config.ft_inv_nx, config.ft_inv_ny,
                                            cache_dir=config.cache_dir)
-            ml_cart_map_rec = ft_ml_inversion(uu, vv, ww, Vobs, config)
-            ml_cart_map_rec_noise = ft_ml_inversion(uu, vv, ww, Vnoise, config)
+            ml_cart_map_rec = ft_ml_inversion(uu, vv, ww, Vobs, config) * jybeam2k
+            ml_cart_map_rec_noise = ft_ml_inversion(uu, vv, ww, Vnoise, config) * jybeam2k
 
-            jybeam2k = (jy2k / (config.ft_inv_res ** 2))
             res = config.ft_inv_res
             umin = config.uv_rumin
             umax = config.uv_rumax
 
-            cart_map = util.filter_cart_map(cart_map, res, umin, umax)
-            ml_cart_map_rec = util.filter_cart_map(ml_cart_map_rec, res, umin, umax) * jybeam2k
-            ml_cart_map_rec_noise = util.filter_cart_map(ml_cart_map_rec_noise, res, umin, umax) * jybeam2k
+            cart_map_bp = util.filter_cart_map(cart_map, res, umin, umax)
+            ml_cart_map_rec_bp = util.filter_cart_map(ml_cart_map_rec, res, umin, umax)
+            # ml_cart_map_rec_noise_bp = util.filter_cart_map(ml_cart_map_rec_noise, res, umin, umax)
 
         print "Plotting result..."
         # plot vlm vs vlm_rec
@@ -1534,7 +1537,7 @@ def do_inversion(config, result_dir):
             plot_cart_power_spectra(cart_map, ml_cart_map_rec, sel_ll, config, ml_cart_map_rec_noise,
                                     savefile=os.path.join(result_freq_dir, 'power_spectra_ft_ml.pdf'))
 
-            plot_cart_map_diff(cart_map, ml_cart_map_rec, config,
+            plot_cart_map_diff(cart_map_bp, ml_cart_map_rec_bp, config,
                                savefile=os.path.join(result_freq_dir, 'cart_map_ft_ml.pdf'))
 
         t = time.time()

@@ -34,6 +34,7 @@ beam_sinc_n_sidelobe = 1
 fwhm = np.radians(10)
 
 out_theta_max = 1 * fwhm
+out_mmax_bias = 1
 
 # =================================================================
 # Simulate FG using synfast (if add_fg is False)
