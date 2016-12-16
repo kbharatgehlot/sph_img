@@ -723,7 +723,7 @@ def alm_to_cartmap(alm, ll, mm, res, nx, ny, cache_dir='cache'):
     thx, thy = np.meshgrid(thxval, thyval)
 
     thz = np.sqrt(1 - thx ** 2 - thy ** 2)
-    rs, phis, thetas = cart2sph(thx, thy, np.ones_like(thx))
+    rs, phis, thetas = cart2sph(thx, thy, thz)
 
     # ylm = util.get_ylm(ll, mm, phis.flatten(), thetas.flatten())
     ylm_obj = YlmCachedMatrix(ll, mm, phis.flatten(), thetas.flatten(), cache_dir, keep_in_mem=True)
