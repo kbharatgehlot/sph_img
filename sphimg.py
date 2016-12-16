@@ -1014,7 +1014,7 @@ def alm_post_processing(alm, ll, mm, config):
     if config.do_l_smoothing and not config.out_lm_even_only:
         alm = l_smoothing(alm, ll, mm)
     if config.do_l_sampling:
-        ll, mm, idx = l_sampling(ll, mm, config.l_sampling_dl, config.l_sampling_dl_start)
+        ll, mm, idx = l_sampling(ll, mm, config.l_sampling_dl, config.l_sampling_lmin, config.l_sampling_lmax)
         alm = alm[idx]
 
     return alm, ll, mm
