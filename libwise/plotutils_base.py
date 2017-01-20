@@ -119,8 +119,6 @@ def autoscale_y(ax, margin=0.1):
     From: http://stackoverflow.com/questions/29461608/matplotlib-fixing-x-axis-scale-and-autoscale-y-axis
     """
 
-    import numpy as np
-
     def get_bottom_top(line):
         xd = line.get_xdata()
         yd = line.get_ydata()
@@ -140,8 +138,6 @@ def autoscale_y(ax, margin=0.1):
             bot = new_bot
         if new_top > top:
             top = new_top
-
-    print bot, top
 
     ax.set_ylim(bot, top)
 

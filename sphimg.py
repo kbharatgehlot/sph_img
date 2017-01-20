@@ -361,7 +361,6 @@ def plot_2d_power_spectra(ll, mm, alms, freqs, config, savefile=None, vmin=1e-14
 def plot_rec_power_sepctra(ll, mm, alm, savefile=None):
     ps = util.get_power_spectra(alm, ll, mm)
 
-    fig = plt.figure()
     fig, ax1 = plt.subplots()
     ax1.plot(np.unique(ll), ps, label='Beam modulated power spectra')
     ax1.set_yscale('log')
@@ -667,10 +666,10 @@ def sample_input_alm(config, alms, ll, mm):
     ll_inp, mm_inp = util.get_lm(lmin=config.inp_lmin, lmax=config.inp_lmax,
                                  dl=config.inp_dl, dm=config.inp_dm,
                                  mmax=config.inp_mmax, mmin=config.inp_mmin)
-    theta_max = config.out_theta_max
+    theta_max = config.inp_theta_max
 
     if config.inp_mmax_strip:
-        ll_inp, mm_inp = util.strip_mm(ll_inp, mm_inp, lambda l: np.sin(theta_max) * l + config.out_mmax_bias)
+        ll_inp, mm_inp = util.strip_mm(ll_inp, mm_inp, lambda l: np.sin(theta_max) * l + config.inp_mmax_bias)
 
     if config.inp_lm_even_only:
         idx = np.logical_not(util.is_odd(ll_inp + mm_inp)).astype(bool)
@@ -1383,7 +1382,8 @@ def do_inversion(config, result_dir):
                                             config.cache_dir, keep_in_mem=config.keep_in_mem)
 
     if config.out_dl != config.inp_dl or config.out_dm != config.inp_dm \
-            or config.out_mmax != config.inp_mmax or config.out_mmax_strip != config.inp_mmax_strip:
+            or config.out_mmax != config.inp_mmax or config.out_mmax_strip != config.inp_mmax_strip \
+            or config.out_theta_max != config.inp_theta_max or config.out_mmax_bias != config.inp_mmax_bias:
         global_sel_ylm = util.SplittedYlmMatrix(sel_ll, sel_mm, uphis, uthetas, rb,
                                                 config.cache_dir, keep_in_mem=config.keep_in_mem)
     else:
@@ -1452,7 +1452,7 @@ def do_inversion(config, result_dir):
             t = time.time()
             print "Building transformation matrix...",
             sel_ylm = global_sel_ylm.get_chunk(bmin, bmax)
-            trm = util.get_alm2vis_matrix(sel_ll, sel_mm, inp_ylm, lamb, order='F')
+            trm = util.get_alm2vis_matrix(sel_ll, sel_mm, sel_ylm, lamb, order='F')
             print "Done in %.2f s" % (time.time() - t)
 
             uthetas, uphis, ru = sel_ylm[0].thetas, sel_ylm[0].phis, sel_ylm[0].rb / lamb
@@ -1494,8 +1494,8 @@ def do_inversion(config, result_dir):
             ml_cart_map_rec_noise = ft_ml_inversion(uu, vv, ww, Vnoise, config) * jybeam2k
 
             res = config.ft_inv_res
-            umin = config.uv_rumin
-            umax = config.uv_rumax
+            umin = config.l_sampling_lmin / (2 * np.pi)
+            umax = config.l_sampling_lmax / (2 * np.pi)
 
             cart_map_bp = util.filter_cart_map(cart_map, res, umin, umax)
             ml_cart_map_rec_bp = util.filter_cart_map(ml_cart_map_rec, res, umin, umax)

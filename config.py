@@ -10,6 +10,11 @@ import numpy as np
 # Input sky. Simulate sky and apply a beam
 # =================================================================
 
+# beam_type can be one of: gaussian, sinc2, tophat, none
+beam_type = 'gaussian'
+beam_sinc_n_sidelobe = 1
+fwhm = np.radians(10)
+
 freqs_mhz = np.array([110.])
 
 # lmax should be about 3 times nside. nside needs to be a power of 2
@@ -23,18 +28,13 @@ inp_mmin = 0
 inp_lmin = 50
 inp_dm = 1
 inp_dl = 1
+
 inp_mmax_strip = True
+inp_theta_max = 1 * fwhm
+inp_mmax_bias = 2
 
 # When W=0, we can not recover odd l+m modes
 inp_lm_even_only = False
-
-# beam_type can be one of: gaussian, sinc2, tophat, none
-beam_type = 'gaussian'
-beam_sinc_n_sidelobe = 1
-fwhm = np.radians(10)
-
-out_theta_max = 1 * fwhm
-out_mmax_bias = 1
 
 # =================================================================
 # Simulate FG using synfast (if add_fg is False)
@@ -131,6 +131,8 @@ out_dl = 1
 
 # strip mmax < sin(theta_max) * l
 out_mmax_strip = True
+out_theta_max = inp_theta_max
+out_mmax_bias = inp_mmax_bias
 
 # =================================================================
 # FT Inversion parameters
@@ -163,10 +165,8 @@ cg_tol = 1e-14
 
 cg_maxiter = 5000
 
-# Enable dct sampling
+# Enable dct sampling, you might want to use something like dct_dl = pi / theta_max
 use_dct = True
-
-# You might want to use something like dct_dl = np.ceil(np.pi / out_theta_max)
 dct_dl = 5.
 
 # using psparse will be faster for ncore > 4, slower otherwise.
