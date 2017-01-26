@@ -23,7 +23,7 @@ from psparse import pmultiply
 
 import astropy.constants as const
 import astropy.io.fits as pyfits
-
+import astropy.wcs as pywcs
 
 import util
 
@@ -1235,6 +1235,23 @@ def load_results_v3(dirname):
         ru, uphis, uthetas, V, Vobs, Vrec
 
 
+def save_fits_img(cart_map, res, freq, dfreq, dirname, filename):
+    nx, ny = cart_map.shape
+
+    wcs = pywcs.WCS(naxis=4)
+    wcs.wcs.crpix = [nx / 2 + 1, ny / 2 + 1, 1, 1]
+    wcs.wcs.crval = [0, 90, freq, 1]
+    wcs.wcs.ctype = ['RA---SIN', 'DEC--SIN', 'FREQ', 'STOKES']
+    wcs.wcs.cunit = ['deg', 'deg', 'Hz', '']
+    wcs.wcs.cdelt = [-res, res, dfreq, 1]
+
+    hdu = pyfits.PrimaryHDU(cart_map)
+    hdu.header.update(wcs.to_header())
+
+    hdulist = pyfits.HDUList([hdu])
+    hdulist.writeto(os.path.join(dirname, filename), clobber=True)
+
+
 def read_gridded_config(weighting_file, config):
     f_w = pyfits.open(weighting_file)
     du = f_w[0].header['CDELT1']
@@ -1383,7 +1400,8 @@ def do_inversion(config, result_dir):
 
     if config.out_dl != config.inp_dl or config.out_dm != config.inp_dm \
             or config.out_mmax != config.inp_mmax or config.out_mmax_strip != config.inp_mmax_strip \
-            or config.out_theta_max != config.inp_theta_max or config.out_mmax_bias != config.inp_mmax_bias:
+            or config.out_theta_max != config.inp_theta_max or config.out_mmax_bias != config.inp_mmax_bias \
+            or config.out_lmax != config.inp_lmax:
         global_sel_ylm = util.SplittedYlmMatrix(sel_ll, sel_mm, uphis, uthetas, rb,
                                                 config.cache_dir, keep_in_mem=config.keep_in_mem)
     else:
@@ -1391,11 +1409,13 @@ def do_inversion(config, result_dir):
 
     alms_rec = []
 
+    pt = util.progress_tracker(len(config.freqs_mhz))
+
     for i, freq in enumerate(config.freqs_mhz):
         sel_ll, sel_mm = get_out_lm_sampling(config)
 
         plot_pool = multiprocessing.Pool(processes=1)
-        print "\nProcessing frequency %s MHz" % freq
+        print "\nProcessing frequency %s MHz (%s)" % (freq, pt(i))
 
         lamb = const.c.value / (float(freq) * 1e6)
         bmin = np.floor(lamb * config.uv_rumin)
@@ -1417,9 +1437,9 @@ def do_inversion(config, result_dir):
 
         uu, vv, ww = util.sph2cart(uthetas, uphis, ru)
 
-        title = 'Type: %s, Nvis: %s, Umin: %s, Umax: %s' % (config.uv_type, len(uu),
-                                                            config.uv_rumin, config.uv_rumax)
-        plot_uv_cov(uu, vv, ww, config, title, os.path.join(result_freq_dir, 'uv_cov.pdf'))
+        # title = 'Type: %s, Nvis: %s, Umin: %s, Umax: %s' % (config.uv_type, len(uu),
+        #                                                     config.uv_rumin, config.uv_rumax)
+        # plot_uv_cov(uu, vv, ww, config, title, os.path.join(result_freq_dir, 'uv_cov.pdf'))
 
         alm = inp_alms[i]
 
@@ -1438,15 +1458,14 @@ def do_inversion(config, result_dir):
         Vobs = V + Vnoise
 
         # plotting the visibilities
-        plot_pool.apply_async(plot_visibilities, (uu, vv, ww, V, os.path.join(result_freq_dir, 'vis_from_vlm.pdf')))
+        # plot_pool.apply_async(plot_visibilities, (uu, vv, ww, V, os.path.join(result_freq_dir, 'vis_from_vlm.pdf')))
 
-        plot_pool.apply_async(plot_2d_visibilities, (uu, vv, Vobs,
-                                                     os.path.join(result_freq_dir, 'visibilities_2d.pdf')))
+        # plot_pool.apply_async(plot_2d_visibilities, (uu, vv, Vobs,
+        #                                              os.path.join(result_freq_dir, 'visibilities_2d.pdf')))
 
         idx = util.get_lm_selection_index(inp_ll, inp_mm, sel_ll, sel_mm)
 
         sel_alm = alm[idx]
-        sel_vlm = util.alm2vlm(sel_alm, sel_ll)
 
         if global_sel_ylm != global_inp_ylm:
             t = time.time()
@@ -1483,24 +1502,6 @@ def do_inversion(config, result_dir):
         vlm_rec = util.alm2vlm(alm_rec, sel_ll)
         vlm_rec_noise = util.alm2vlm(alm_rec_noise, sel_ll)
 
-        if config.do_ft_inv:
-            print "\nStarting FT ML inversion ..."
-            jybeam2k = (jy2k / (config.ft_inv_res ** 2))
-
-            cart_map = util.alm_to_cartmap(alm, inp_ll, inp_mm, config.ft_inv_res,
-                                           config.ft_inv_nx, config.ft_inv_ny,
-                                           cache_dir=config.cache_dir)
-            ml_cart_map_rec = ft_ml_inversion(uu, vv, ww, Vobs, config) * jybeam2k
-            ml_cart_map_rec_noise = ft_ml_inversion(uu, vv, ww, Vnoise, config) * jybeam2k
-
-            res = config.ft_inv_res
-            umin = config.l_sampling_lmin / (2 * np.pi)
-            umax = config.l_sampling_lmax / (2 * np.pi)
-
-            cart_map_bp = util.filter_cart_map(cart_map, res, umin, umax)
-            ml_cart_map_rec_bp = util.filter_cart_map(ml_cart_map_rec, res, umin, umax)
-            # ml_cart_map_rec_noise_bp = util.filter_cart_map(ml_cart_map_rec_noise, res, umin, umax)
-
         print "Plotting result..."
         # plot vlm vs vlm_rec
         plot_pool.apply_async(plot_vlm_vs_vlm_rec, (sel_ll, sel_mm, sel_vlm, vlm_rec,
@@ -1532,19 +1533,41 @@ def do_inversion(config, result_dir):
 
         # write_gridded_visibilities(result_freq_dir, 'gridded_vis', V, config, freq, 1)
 
-        # Additional plot for FT ML inv comparison
+        t = time.time()
+        print "Waiting for plotting to finish...",
+        plot_pool.close()
+        plot_pool.join()
+        print "Done in %.2f s" % (time.time() - t)
+
         if config.do_ft_inv:
+            print "\nStarting FT ML inversion ..."
+            jybeam2k = (jy2k / (config.ft_inv_res ** 2))
+
+            cart_map = util.alm_to_cartmap(alm, inp_ll, inp_mm, config.ft_inv_res,
+                                           config.ft_inv_nx, config.ft_inv_ny,
+                                           cache_dir=config.cache_dir)
+            ml_cart_map_rec = ft_ml_inversion(uu, vv, ww, Vobs, config) * jybeam2k
+            ml_cart_map_rec_noise = ft_ml_inversion(uu, vv, ww, Vnoise, config) * jybeam2k
+
+            res = config.ft_inv_res
+            umin = config.l_sampling_lmin / (2 * np.pi)
+            umax = config.l_sampling_lmax / (2 * np.pi)
+
+            cart_map_bp = util.filter_cart_map(cart_map, res, umin, umax)
+            ml_cart_map_rec_bp = util.filter_cart_map(ml_cart_map_rec, res, umin, umax)
+            # ml_cart_map_rec_noise_bp = util.filter_cart_map(ml_cart_map_rec_noise, res, umin, umax)
+
+            save_fits_img(cart_map, res, float(freq) * 1e6, 1, result_freq_dir, 'cart_map_input.fits')
+            save_fits_img(ml_cart_map_rec, res, float(freq) * 1e6, 1, result_freq_dir, 'cart_map_rec_I.fits')
+            save_fits_img(ml_cart_map_rec_noise, res, float(freq) * 1e6, 1, result_freq_dir, 'cart_map_rec_V.fits')
+
             plot_cart_power_spectra(cart_map, ml_cart_map_rec, sel_ll, config, ml_cart_map_rec_noise,
                                     savefile=os.path.join(result_freq_dir, 'power_spectra_ft_ml.pdf'))
 
             plot_cart_map_diff(cart_map_bp, ml_cart_map_rec_bp, config,
                                savefile=os.path.join(result_freq_dir, 'cart_map_ft_ml.pdf'))
 
-        t = time.time()
-        print "Waiting for plotting to finish...",
-        plot_pool.close()
-        plot_pool.join()
-        print "Done in %.2f s" % (time.time() - t)
+            print "Done FT ML inversion"
 
     global_sel_ylm.close()
     global_inp_ylm.close()

@@ -132,31 +132,31 @@ class Alm2VisTransMatrix(object):
         i1 = len(ylm_m0_l_even.ll)
         i2 = len(ylm_lm_even.ll)
 
-        print "Time lm_selection %.2f s" % (time.time() - t)
+        # print "Time lm_selection %.2f s" % (time.time() - t)
         t = time.time()
         self.T_r = np.zeros((len(self.ll_r), ylm_m0_l_even.data.shape[1]), order=order)
-        print "Time T_r init %.2f s" % (time.time() - t)
+        # print "Time T_r init %.2f s" % (time.time() - t)
         t = time.time()
 
         if len(ylm_m0_l_even.ll) > 0:
             jn = get_jn_fast_weave(ylm_m0_l_even.ll, ylm_m0_l_even.rb / lamb)
             r = ylm_m0_l_even.data.real
             ne.evaluate('4 * pi * p_m0 * r * jn', out=self.T_r[:i1, :])
-            print "Time m0 %.2f s" % (time.time() - t)
+            # print "Time m0 %.2f s" % (time.time() - t)
 
         t = time.time()
         r = ylm_lm_even.data.real
         i = ylm_lm_even.data.imag
         jn = get_jn_fast_weave(ylm_lm_even.ll, ylm_lm_even.rb / lamb)
-        print "Time jn %.2f s" % (time.time() - t)
+        # print "Time jn %.2f s" % (time.time() - t)
 
         t = time.time()
         ne.evaluate('4 * pi * p_mp * 2 * r * jn', out=self.T_r[i1:i1 + i2, :])
-        print "Time ev1 %.2f s" % (time.time() - t)
+        # print "Time ev1 %.2f s" % (time.time() - t)
 
         t = time.time()
         ne.evaluate('4 * pi * p_mp * -2 * i * jn', out=self.T_r[i1 + i2:i1 + i2 + i2, :])
-        print "Time ev2 %.2f s" % (time.time() - t)
+        # print "Time ev2 %.2f s" % (time.time() - t)
 
         self.ll_i = np.hstack((ylm_m0_l_odd.ll, ylm_lm_odd.ll, ylm_lm_odd.ll))
         self.mm_i = np.hstack((ylm_m0_l_odd.mm, ylm_lm_odd.mm, ylm_lm_odd.mm))
@@ -1154,6 +1154,19 @@ def progress_report(n):
             print ""
 
     return report
+
+
+def progress_tracker(n):
+    t = time.time()
+
+    def get_progress(i):
+        eta = ""
+        if i > 0:
+            remaining = (np.round((time.time() - t) / float(i) * (n - i)))
+            eta = " (ETA: %s)" % time.strftime("%H:%M:%S", time.localtime(time.time() + remaining))
+        return "%s / %s%s" % (i + 1, n, eta)
+
+    return get_progress
 
 
 def test_alm2vis():
