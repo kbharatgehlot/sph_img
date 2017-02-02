@@ -26,6 +26,7 @@ import astropy.io.fits as pyfits
 import astropy.wcs as pywcs
 
 import util
+import ps as psutil
 
 
 def plot_sky(alm, ll, mm, nside, title='', savefile=None):
@@ -339,12 +340,12 @@ def plot_vlm_rec_map(sel_ll, sel_mm, vlm_rec, cov_error, savefile=None, vmin=1e-
 def plot_2d_power_spectra(ll, mm, alms, freqs, config, savefile=None, vmin=1e-14, vmax=1e-10, ft=False):
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    ps = util.get_2d_power_spectra(alms, ll, mm, freqs, ft=ft)
+    ps2d = psutil.get_power_spectra(alms, ll, mm, freqs)
 
     cbs = plotutils.ColorbarSetting(plotutils.ColorbarOutterPosition())
     extent = (min(ll), max(ll), min(freqs), max(freqs))
 
-    im_mappable = ax.imshow(np.array(ps), aspect='auto', norm=plotutils.LogNorm(),
+    im_mappable = ax.imshow(np.array(ps2d), aspect='auto', norm=plotutils.LogNorm(),
                             vmin=vmin, vmax=vmax, extent=extent)
     cbs.add_colorbar(im_mappable, ax)
     ax.set_ylabel("Frequency")
@@ -355,11 +356,11 @@ def plot_2d_power_spectra(ll, mm, alms, freqs, config, savefile=None, vmin=1e-14
         fig.savefig(savefile)
         plt.close(fig)
 
-    return np.array(ps), ax
+    return np.array(ps2d), ax
 
 
 def plot_rec_power_sepctra(ll, mm, alm, savefile=None):
-    ps = util.get_power_spectra(alm, ll, mm)
+    ps = psutil.get_power_spectra(alm, ll, mm)
 
     fig, ax1 = plt.subplots()
     ax1.plot(np.unique(ll), ps, label='Beam modulated power spectra')
@@ -375,19 +376,19 @@ def plot_rec_power_sepctra(ll, mm, alm, savefile=None):
 def plot_power_spectra(ll, mm, alm, alm_rec, config, alm_rec_noise=None, savefile=None):
     el = np.unique(ll)
 
-    if config.beam_type == 'tophat':
-        omega = config.fwhm ** 2
+    if config.do_reduce_fov:
+        theta_max = config.reduce_fov_theta_max
     else:
-        omega = np.pi * nputils.gaussian_fwhm_to_sigma(config.fwhm) ** 2.
+        theta_max = None
 
-    pb_corr = 4 * np.pi / omega
+    pb_corr = psutil.get_sph_pb_corr(config.beam_type, config.fwhm, theta_max, config.nside)
 
-    ps_rec = util.get_power_spectra(alm_rec, ll, mm) * pb_corr
-    ps = util.get_power_spectra(alm, ll, mm) * pb_corr
-    ps_rec_err = util.get_power_spectra(alm - alm_rec, ll, mm) * pb_corr
+    ps_rec = psutil.get_power_spectra(alm_rec, ll, mm) * pb_corr
+    ps = psutil.get_power_spectra(alm, ll, mm) * pb_corr
+    ps_rec_err = psutil.get_power_spectra(alm - alm_rec, ll, mm) * pb_corr
 
     if alm_rec_noise is not None:
-        ps_rec_noise = util.get_power_spectra(alm_rec_noise, ll, mm) * pb_corr
+        ps_rec_noise = psutil.get_power_spectra(alm_rec_noise, ll, mm) * pb_corr
 
     fig, ax = plt.subplots()
     ax.plot(np.arange(config.lmax + 1), config.cl, label='Input PS')
@@ -414,23 +415,16 @@ def plot_power_spectra(ll, mm, alm, alm_rec, config, alm_rec_noise=None, savefil
 
 def plot_cart_power_spectra(cart_map, cart_map_rec, ll, config, cart_map_rec_noise=None, savefile=None):
     el = np.unique(ll)
-    nx, ny = cart_map.shape
     res = config.ft_inv_res
 
-    thxval = res * np.arange(-nx / 2., nx / 2.)
-    thyval = res * np.arange(-ny / 2., ny / 2.)
-    thx, thy = np.meshgrid(thxval, thyval)
+    pb_corr = psutil.get_cart_pb_corr(config.beam_type, config.fwhm, res, cart_map.shape)
 
-    fov_map = (config.ft_inv_res * config.ft_inv_nx) ** 2
-    beam_map = util.gaussian_beam(np.sqrt(thx ** 2 + thy ** 2), config.fwhm)
-    pb_corr = fov_map / (beam_map ** 2).mean()
-
-    ps_rec = util.get_power_spectra_cart(cart_map_rec, res, el) * pb_corr
-    ps = util.get_power_spectra_cart(cart_map, res, el) * pb_corr
-    ps_rec_err = util.get_power_spectra_cart(cart_map - cart_map_rec, res, el) * pb_corr
+    ps_rec = psutil.get_power_spectra_cart(cart_map_rec, res, el) * pb_corr
+    ps = psutil.get_power_spectra_cart(cart_map, res, el) * pb_corr
+    ps_rec_err = psutil.get_power_spectra_cart(cart_map - cart_map_rec, res, el) * pb_corr
 
     if cart_map_rec_noise is not None:
-        ps_rec_noise = util.get_power_spectra_cart(cart_map_rec_noise, res, el) * pb_corr
+        ps_rec_noise = psutil.get_power_spectra_cart(cart_map_rec_noise, res, el) * pb_corr
 
     fig, ax = plt.subplots()
     ax.plot(np.arange(config.lmax + 1), config.cl, label='Input PS')
@@ -463,7 +457,7 @@ def plot_mf_power_spectra(ll, mm, alms, freqs, config, savefile=None):
     idx = np.where(np.in1d(ll, l_sampled))[0]
 
     for freq, alm in zip(freqs, alms):
-        ps = util.get_power_spectra(alm[idx], ll[idx], mm[idx])
+        ps = psutil.get_power_spectra(alm[idx], ll[idx], mm[idx])
         ax.plot(l_sampled, ps, label='%s Mhz', marker='+')
 
     # ax.set_xscale('log')
@@ -482,8 +476,8 @@ def plot_mf_power_spectr_diff(ll, mm, alms, alms_rec, freqs, savefile=None, vmin
     ps_rec = []
     ps = []
     for i in range(alm_cube.shape[0]):
-        ps.append(util.get_power_spectra(alm_cube[i], ll, mm))
-        ps_rec.append(util.get_power_spectra(alm_rec_cube[i], ll, mm))
+        ps.append(psutil.get_power_spectra(alm_cube[i], ll, mm))
+        ps_rec.append(psutil.get_power_spectra(alm_rec_cube[i], ll, mm))
 
     fig, (ax1, ax2, ax3) = plt.subplots(nrows=3, figsize=(6, 12))
     cbs = plotutils.ColorbarSetting(plotutils.ColorbarOutterPosition())
@@ -592,28 +586,13 @@ def plot_vis_diff(ru, Vobs, Vrec, savefile=None):
 
 def simulate_sky(config):
     ll, mm = util.get_lm(config.lmax)
-    nside = config.nside
     lmax = config.lmax
-    fwhm = config.fwhm
+    thetas, phis = hp.pix2ang(config.nside, np.arange(hp.nside2npix(config.nside)))
 
-    thetas, phis = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+    beam = util.get_beam(thetas, config.beam_type, config.fwhm, config.beam_sinc_n_sidelobe)
+    assert beam is not None
 
-    if config.beam_type == 'gaussian':
-        print 'Using a gaussian beam with fwhm = %.3f rad' % fwhm
-        beam = util.gaussian_beam(thetas, fwhm)
-
-    elif config.beam_type == 'sinc2':
-        n_sidelibe = config.beam_sinc_n_sidelobe
-        print 'Using a sinc2 beam with fwhm = %.3f rad and %s sidelobes' % (fwhm, n_sidelibe)
-        beam = util.sinc2_beam(thetas, fwhm, n_sidelibe=n_sidelibe)
-
-    elif config.beam_type == 'tophat':
-        print 'Using a tophat beam with width = %.3f rad' % fwhm
-        beam = util.tophat_beam(thetas, fwhm)
-
-    else:
-        print 'Not using any beam'
-        beam = np.ones_like(thetas)
+    print 'Using a %s beam with fwhm = %.3f rad' % (config.beam_type, config.fwhm)
 
     if config.add_fg is True:
         print 'Using simulated sky from fits file'
@@ -657,9 +636,7 @@ def simulate_sky(config):
 
     alms = [m1 + m2 for m1, m2, in zip(fg_alms, eor_alms)]
 
-    beam_lm = hp.map2alm(beam, lmax)
-
-    return ll, mm, alms, fg_alms, eor_alms, beam_lm
+    return ll, mm, alms, fg_alms, eor_alms
 
 
 def sample_input_alm(config, alms, ll, mm):
@@ -797,6 +774,16 @@ def l_sampling(ll, mm, dl, lmin=None, lmax=None):
     idx = util.get_lm_selection_index(ll, mm, ll2, mm2)
 
     return ll2, mm2, idx
+
+
+def reduce_fov(ll, mm, alm, theta_max, nside):
+    thetas, phis = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+    fov_cut = util.tophat_beam(thetas, 2 * theta_max)
+    alm_cut = hp.map2alm(util.fast_alm2map(alm, ll, mm, nside) * fov_cut, max(ll))
+    llf, mmf = util.get_lm(max(ll))
+    idx = util.get_lm_selection_index(llf, mmf, ll, mm)
+
+    return alm_cut[idx]
 
 
 def compute_visibilities(alm, ll, mm, uphis, uthetas, i, trm):
@@ -940,7 +927,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
     if config.compute_alm_noise:
         print '\nComputing alm noise ...',
         start = time.time()
-        np.random.seed(config.vis_rnd_seed)
+        np.random.seed(config.vis_rnd_seed + i)
         rhs_noise_r = np.dot(X_r_dot_C_Dinv, config.noiserms * np.random.randn(len(Vobs)))
         rhs_noise_i = np.dot(X_i_dot_C_Dinv, config.noiserms * np.random.randn(len(Vobs)))
 
@@ -1008,11 +995,15 @@ def ft_ml_inversion(uu, vv, ww, Vobs, config, include_pb=False):
     return np.real(X_ML.reshape(Nx, Ny))
 
 
-def alm_post_processing(alm, ll, mm, config):
-    ''' Post processing + conversion from Jy/sr to K'''
+def alm_post_processing(alm, ll, mm, config, sampling_alone=False):
+    ''' Post processing'''
     if config.do_lm_interp and config.out_lm_even_only:
         alm, ll, mm = interpolate_lm_odd(alm, ll, mm, config)
-    if config.do_l_smoothing and not config.out_lm_even_only:
+    if config.do_reduce_fov and not sampling_alone:
+        idx = (ll >= config.reduce_fov_lmin) & (ll <= config.reduce_fov_lmax)
+        ll, mm = ll[idx], mm[idx]
+        alm = reduce_fov(ll, mm, alm[idx], config.reduce_fov_theta_max, config.nside)
+    if config.do_l_smoothing and not config.out_lm_even_only and not sampling_alone:
         alm = l_smoothing(alm, ll, mm)
     if config.do_l_sampling:
         ll, mm, idx = l_sampling(ll, mm, config.l_sampling_dl, config.l_sampling_lmin, config.l_sampling_lmax)
@@ -1085,8 +1076,8 @@ def load_alm_rec(dirname):
     return df.ll, df.mm, df.alm_rec, df.alm_rec_noise, df.cov_error
 
 
-def save_alm(dirname, ll, mm, alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error):
-    filename = os.path.join(dirname, 'alm.dat')
+def save_alm(dirname, ll, mm, alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error, filename='alm.dat'):
+    filename = os.path.join(dirname, filename)
     print "Saving alm result to:", filename
 
     np.savetxt(filename, np.array([ll, mm, alm.real, alm.imag, alm_fg.real, alm_fg.imag,
@@ -1095,8 +1086,8 @@ def save_alm(dirname, ll, mm, alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_
                                    cov_error.imag]).T)
 
 
-def load_alm(dirname):
-    filename = os.path.join(dirname, 'alm.dat')
+def load_alm(dirname, filename='alm.dat'):
+    filename = os.path.join(dirname, filename)
     # print "Loading alm result from:", filename
 
     # a = np.loadtxt(filename)
@@ -1377,15 +1368,14 @@ def do_inversion(config, result_dir):
     if config.use_dct and isinstance(config.dct_dl, (list, np.ndarray)):
         assert len(config.dct_dl) == nfreqs, "Lenght of dct_dl should be the same as the number of frequencies"
 
-    full_ll, full_mm, full_alms, fg_alms, eor_alms, beam_alm = simulate_sky(config)
+    full_ll, full_mm, full_alms, fg_alms, eor_alms = simulate_sky(config)
     plot_sky_cart(full_alms[0], full_ll, full_mm, config.nside, theta_max=config.fwhm,
                   title='Input sky, beam=%.1f deg, lmax=%s' % (np.degrees(config.fwhm), config.lmax),
                   savefile=os.path.join(result_dir, 'input_sky.pdf'))
 
-    inp_alms, inp_ll, inp_mm = sample_input_alm(config, full_alms + fg_alms + eor_alms + [beam_alm], full_ll, full_mm)
+    inp_alms, inp_ll, inp_mm = sample_input_alm(config, full_alms + fg_alms + eor_alms, full_ll, full_mm)
     fg_alms = inp_alms[nfreqs:2 * nfreqs]
     eor_alms = inp_alms[2 * nfreqs:3 * nfreqs]
-    beam_alm = inp_alms[-1]
 
     rb, uphis, uthetas = simulate_uv_cov(config)
 
@@ -1453,7 +1443,7 @@ def do_inversion(config, result_dir):
         else:
             print "Noise in visibility: %.3f Jy" % config.noiserms
 
-        np.random.seed(config.vis_rnd_seed)
+        np.random.seed(config.vis_rnd_seed + i)
         Vnoise = config.noiserms * np.random.randn(len(V)) + 1j * config.noiserms * np.random.randn(len(V))
         Vobs = V + Vnoise
 
@@ -1462,6 +1452,37 @@ def do_inversion(config, result_dir):
 
         # plot_pool.apply_async(plot_2d_visibilities, (uu, vv, Vobs,
         #                                              os.path.join(result_freq_dir, 'visibilities_2d.pdf')))
+
+        # if config.uv_type == 'gridded':
+        #     if config.uv_type == 'gridded':
+        #         print "Number total of visibilities:", np.sum(config.weights)
+        #     g_Vobs = get_gridded_visibilities(config, Vobs, uu, vv) * jy2k
+        #     g_V = get_gridded_visibilities(config, V, uu, vv) * jy2k
+
+        #     fig, ax = plt.subplots()
+        #     cbs = plotutils.ColorbarSetting(plotutils.ColorbarOutterPosition())
+        #     extent = np.array([-5, 5, -5, 5])
+
+        #     dmap_obs = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(g_Vobs)))
+        #     im_mappable = ax.imshow(dmap_obs.real, extent=extent)
+        #     cbs.add_colorbar(im_mappable, ax)
+        #     # ax1.set_xlabel('DEC (deg)')
+        #     ax.set_ylabel('RA (deg)')
+        #     ax.set_title('FFT(Vobs) Stokes I')
+        #     fig.savefig(os.path.join(result_dir, 'dirty_map.pdf'))
+        #     plt.close(fig)
+
+        #     fig, ax = plt.subplots()
+        #     dmap = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(g_V)))
+        #     print nputils.stat(dmap.real)
+        #     print nputils.stat(dmap.real - dmap_obs.real)
+        #     im_mappable = ax.imshow(dmap.real - dmap_obs.real, extent=extent)
+        #     cbs.add_colorbar(im_mappable, ax)
+        #     # ax1.set_xlabel('DEC (deg)')
+        #     ax.set_ylabel('RA (deg)')
+        #     ax.set_title('FFT(Vobs) Stokes I')
+        #     fig.savefig(os.path.join(result_dir, 'diff_dirty_map.pdf'))
+        #     plt.close(fig)
 
         idx = util.get_lm_selection_index(inp_ll, inp_mm, sel_ll, sel_mm)
 
@@ -1484,10 +1505,14 @@ def do_inversion(config, result_dir):
         alm_rec_noise = alm_rec_noise * jy2k
         cov_error = cov_error * jy2k
 
+        # Saving full alm before post-processing
+        save_alm(result_freq_dir, sel_ll, sel_mm, sel_alm, fg_alms[i][idx],
+                 eor_alms[i][idx], alm_rec, alm_rec_noise, cov_error, filename='alm_full.dat')
+
         print "Post processing..."
         alm_rec, _, _ = alm_post_processing(alm_rec, sel_ll, sel_mm, config)
         alm_rec_noise, _, _ = alm_post_processing(alm_rec_noise, sel_ll, sel_mm, config)
-        cov_error, _, _ = alm_post_processing(cov_error, sel_ll, sel_mm, config)
+        cov_error, _, _ = alm_post_processing(cov_error, sel_ll, sel_mm, config, sampling_alone=True)
         sel_alm, _, _ = alm_post_processing(sel_alm, sel_ll, sel_mm, config)
         sel_fg, _, _ = alm_post_processing(fg_alms[i][idx], sel_ll, sel_mm, config)
         sel_eor, sel_ll, sel_mm = alm_post_processing(eor_alms[i][idx], sel_ll, sel_mm, config)

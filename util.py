@@ -27,7 +27,7 @@ from scipy import weave
 
 from scipy import signal
 from scipy import interpolate
-from scipy import stats
+from scipy.special import j1 as bessel_j1
 
 import Ylm
 
@@ -60,12 +60,11 @@ def write_fits_gridded_visibilities(file, data, du, freq, dfreq):
     hdulist.writeto(file, clobber=True)
 
 
-def write_gridded_visibilities(dirname, basename, V, config, freq, dfreq, sort_idx=None):
+def write_gridded_visibilities(dirname, basename, V, umin, umax, du, freq, dfreq, sort_idx=None):
     g_real = os.path.join(dirname, basename + '_GR.fits')
     g_imag = os.path.join(dirname, basename + '_GI.fits')
 
-    du = config.cart_du
-    n = np.ceil(2 * config.uv_rumax / du)
+    n = np.ceil(2 * umax / du)
 
     u = du * np.arange(-n / 2, n / 2)
     v = du * np.arange(-n / 2, n / 2)
@@ -78,7 +77,7 @@ def write_gridded_visibilities(dirname, basename, V, config, freq, dfreq, sort_i
 
     g_ru = np.sqrt(g_uu ** 2 + g_vv ** 2)
 
-    idx = (g_ru > config.uv_rumin) & (g_ru < config.uv_rumax)
+    idx = (g_ru > umin) & (g_ru < umax)
     # if sort_idx is None:
     #     sort_idx = slice(None)
     sort_idx = nputils.sort_index(g_ru[idx])
@@ -689,34 +688,6 @@ def is_odd(num):
     return num & 0x1
 
 
-def get_power_spectra(alm, ll, mm):
-    l_uniq = np.unique(ll)
-    # return np.array([np.sum(np.abs(alm[ll == l]) ** 2) / (2 * np.sum(ll == l)) for l in l_uniq])
-    return np.array([np.sum(np.abs(alm[ll == l]) ** 2) / (l + 1) for l in l_uniq])
-
-
-def bin_data(x, y, nbins):
-    m, bins_edges, _ = stats.binned_statistic(x, y, 'mean', nbins)
-    bins = np.array([(a + b) / 2. for a, b in nputils.pairwise(bins_edges)])
-
-    return bins, m
-
-
-def get_power_spectra_cart(cart_map, res, el):
-    m_u = 1 / res * np.linspace(-1 / 2., 1 / 2., cart_map.shape[0])
-    m_v = 1 / res * np.linspace(-1 / 2., 1 / 2., cart_map.shape[1])
-    m_uu, m_vv = np.meshgrid(m_u, m_v)
-
-    l = [(a - (b - a) / 2., b + (b - a) / 2.) for a, b in nputils.pairwise(el)]
-    bins_edges = np.array([k[0] for k in l] + [l[-2][1], l[-1][1]]) / (2 * np.pi)
-
-    _, ps_rec_cart = bin_data(np.sqrt(m_uu ** 2 + m_vv ** 2).flatten(),
-                              np.abs(np.fft.fftshift(np.fft.ifft2(cart_map) ** 2).flatten()),
-                              bins_edges)
-
-    return ps_rec_cart
-
-
 def alm_to_cartmap(alm, ll, mm, res, nx, ny, cache_dir='cache'):
     thxval = res * np.arange(-nx / 2., nx / 2.)
     thyval = res * np.arange(-ny / 2., ny / 2.)
@@ -746,24 +717,12 @@ def filter_cart_map(cart_map, res, umin, umax):
 
     m_ru = np.sqrt(m_uu ** 2 + m_vv ** 2)
 
+    print nputils.stat(m_ru)
+
     ft = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(cart_map)))
     ft[(m_ru <= umin) | (m_ru >= umax)] = 0
 
     return np.fft.fftshift(np.fft.ifft2(np.fft.fftshift(ft)).real)
-
-
-def get_2d_power_spectra(alms, ll, mm, freqs, ft=False):
-    alm_cube = np.array(alms)
-    ps = []
-    for i in range(alm_cube.shape[0]):
-        ps.append(get_power_spectra(alm_cube[i], ll, mm))
-
-    ps = np.array(ps)
-
-    if ft:
-        ps = abs(np.fft.fft(ps, axis=0))
-
-    return ps
 
 
 def sph2cart(theta, phi, r=None):
@@ -855,10 +814,29 @@ def sinc2_beam(thetas, fwhm, null_below_horizon=True, n_sidelibe=None):
     return sinc_sph
 
 
+def bessel_beam(thetas, fwhm):
+    return (2 / np.pi * fwhm / thetas * bessel_j1(np.pi * thetas / fwhm)) ** 2
+
+
 def tophat_beam(thetas, width):
     # width in radians, centered at NP
 
     return (thetas <= width / 2.)
+
+
+def get_beam(thetas, beam_type, fwhm, n_sidelobe):
+    if beam_type == 'gaussian':
+        beam = gaussian_beam(thetas, fwhm)
+    elif beam_type == 'sinc2':
+        beam = sinc2_beam(thetas, fwhm, n_sidelibe=n_sidelobe)
+    elif beam_type == 'bessel':
+        beam = bessel_beam(thetas, fwhm)
+    elif beam_type == 'tophat':
+        beam = tophat_beam(thetas, fwhm)
+    else:
+        return None
+
+    return beam
 
 
 def cart_uv(rumin, rumax, du, rnd_w=False, freqs_mhz=None):
@@ -1234,7 +1212,7 @@ def test_uv_cov():
 
     # freqs = np.arange(110, 130, 5)
     freqs = [145.]
-    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 30, 70, 1500, min_max_is_baselines=False)
+    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 45, 255, 200, min_max_is_baselines=False)
     plt.figure()
     colors = plotutils.ColorSelector()
     uphis = []

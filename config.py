@@ -138,6 +138,7 @@ out_mmax_bias = inp_mmax_bias
 # FT Inversion parameters
 # =================================================================
 
+# ft_inv_nx & ft_inv_ny should preferably be even
 do_ft_inv = False
 ft_inv_nx = 40
 ft_inv_ny = 40
@@ -181,8 +182,8 @@ compute_alm_noise = True
 # If W=0, odd l+m modes are not recovered but we can estimates them by interpolation
 do_lm_interp = inp_lm_even_only
 
-# even and odd modes are estimated separately, and l-smoothing help making getting a converged solution
-# This works by getting ride of high spatial frequency term in l direction
+# even and odd modes are estimated separately, and l-smoothing help getting a converged solution
+# This works by getting ride of high spatial frequency term in l direction. Not needed with do_reduce_fov!
 do_l_smoothing = True
 
 # Save only a sampled set of all lm modes
@@ -190,6 +191,13 @@ do_l_sampling = True
 l_sampling_dl = dct_dl
 l_sampling_lmin = out_lmin
 l_sampling_lmax = out_lmax
+
+# Reduce FoV. Simply convert alm to map, apply a tophat beam and convert back to alm.
+# It is advised to set reduce_fov_lmin & reduce_fov_lmax to the range
+do_reduce_fov = False
+reduce_fov_theta_max = fwhm
+reduce_fov_lmin = out_lmin
+reduce_fov_lmax = out_lmax
 
 # =================================================================
 # General parameters

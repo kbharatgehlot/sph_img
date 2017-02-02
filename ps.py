@@ -78,6 +78,32 @@ def wedge_fct(fwhm, z, k_per):
     return np.sin(fwhm) * (dm * cosmo.H(z) / (const.c * (1 + z))).decompose() * k_per
 
 
+def get_sph_pb_corr(beam_type, beam_fwhm, theta_max, nside):
+    thetas, phis = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+    beam = util.get_beam(thetas, beam_type, beam_fwhm, None)
+    if theta_max:
+        fov_cut = util.tophat_beam(thetas, 2 * theta_max)
+    else:
+        fov_cut = 1
+    pb_corr = 1 / ((beam * fov_cut) ** 2).mean()
+
+    return pb_corr
+
+
+def get_cart_pb_corr(beam_type, beam_fwhm, res, img_shape):
+    nx, ny = img_shape
+
+    thxval = res * np.arange(-nx / 2., nx / 2.)
+    thyval = res * np.arange(-ny / 2., ny / 2.)
+    thx, thy = np.meshgrid(thxval, thyval)
+
+    fov_map = (res * nx) * (res * ny)
+    beam_map = util.get_beam(np.sqrt(thx ** 2 + thy ** 2), beam_type, beam_fwhm, None)
+    pb_corr = fov_map / (beam_map ** 2).mean()
+
+    return pb_corr
+
+
 def nudft(x, y, M=None, w=None, dx=None):
     if M is None:
         M = len(x)
@@ -133,10 +159,44 @@ def get_2d_power_spectra(alm, ll, mm, freqs, M=None, window=None, dx=None, half=
         delay, nudft_cube = lssa(freqs, rmean(alm), M=M, w=window, dx=dx)
 
     if half:
+        delay = delay[len(delay) / 2 + 1:]
+        nudft_cube = nudft_cube[len(delay) / 2 + 1:]
+
+    ps2d = get_power_spectra(nudft_cube, ll, mm)
+
+    return delay, ps2d
+
+
+def get_power_spectra_cart(cart_map, res, el):
+    m_u = 1 / res * np.linspace(-1 / 2., 1 / 2., cart_map.shape[0])
+    m_v = 1 / res * np.linspace(-1 / 2., 1 / 2., cart_map.shape[1])
+    m_uu, m_vv = np.meshgrid(m_u, m_v)
+
+    l = [(a - (b - a) / 2., b + (b - a) / 2.) for a, b in nputils.pairwise(el)]
+    bins_edges = np.array([k[0] for k in l] + [l[-2][1], l[-1][1]]) / (2 * np.pi)
+
+    _, ps_rec_cart, _ = bin_data(np.sqrt(m_uu ** 2 + m_vv ** 2).flatten(),
+                                 np.abs(np.fft.fftshift(np.fft.ifft2(cart_map) ** 2).flatten()),
+                                 bins_edges)
+
+    return ps_rec_cart
+
+
+def get_2d_power_spectra_cart(cart_cube, res, el, freqs, M=None, window=None, dx=None, half=True, method='nudft'):
+    nf, nx, ny = cart_cube.shape
+    # cart_cube_ravel = cart_cube.reshape(nf, nx * ny)
+    if method == 'nudft':
+        delay, nudft_cube = nudft(freqs, rmean(cart_cube), M=M, w=window, dx=dx)
+    else:
+        delay, nudft_cube = lssa(freqs, rmean(cart_cube), M=M, w=window, dx=dx)
+
+    # nudft_cube = nudft_cube.reshape(M, nx, ny)
+
+    if half:
         delay = delay[M / 2 + 1:]
         nudft_cube = nudft_cube[M / 2 + 1:]
 
-    ps2d = get_power_spectra(nudft_cube, ll, mm)
+    ps2d = np.array([get_power_spectra_cart(cart_map, res, el) for cart_map in nudft_cube])
 
     return delay, ps2d
 
