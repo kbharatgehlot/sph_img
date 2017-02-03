@@ -1012,8 +1012,8 @@ def alm_post_processing(alm, ll, mm, config, sampling_alone=False):
     return alm, ll, mm
 
 
-def get_config(dirname):
-    return imp.load_source('config', os.path.join(dirname, 'config.py'))
+def get_config(dirname, filename='config.py'):
+    return imp.load_source('config', os.path.join(dirname, filename))
 
 
 def save_data(filename, data, columns_name):

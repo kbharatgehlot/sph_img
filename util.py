@@ -717,8 +717,6 @@ def filter_cart_map(cart_map, res, umin, umax):
 
     m_ru = np.sqrt(m_uu ** 2 + m_vv ** 2)
 
-    print nputils.stat(m_ru)
-
     ft = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(cart_map)))
     ft[(m_ru <= umin) | (m_ru >= umax)] = 0
 

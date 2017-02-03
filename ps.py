@@ -159,8 +159,9 @@ def get_2d_power_spectra(alm, ll, mm, freqs, M=None, window=None, dx=None, half=
         delay, nudft_cube = lssa(freqs, rmean(alm), M=M, w=window, dx=dx)
 
     if half:
-        delay = delay[len(delay) / 2 + 1:]
-        nudft_cube = nudft_cube[len(delay) / 2 + 1:]
+        M = len(delay)
+        delay = delay[M / 2 + 1:]
+        nudft_cube = nudft_cube[M / 2 + 1:]
 
     ps2d = get_power_spectra(nudft_cube, ll, mm)
 
