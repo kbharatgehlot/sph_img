@@ -813,7 +813,9 @@ def sinc2_beam(thetas, fwhm, null_below_horizon=True, n_sidelibe=None):
 
 
 def bessel_beam(thetas, fwhm):
-    return (2 / np.pi * fwhm / thetas * bessel_j1(np.pi * thetas / fwhm)) ** 2
+    beam = (2 / np.pi * fwhm / thetas * bessel_j1(np.pi * thetas / fwhm)) ** 2
+    beam[thetas == 0] = 1
+    return beam
 
 
 def tophat_beam(thetas, width):
