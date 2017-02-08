@@ -48,6 +48,23 @@ def alm_pca_fit(alm, n_cmpt):
     return alm_pca_fitted
 
 
+def map_pca_fit(cart_map_cube, n_cmpt):
+    shape = cart_map_cube.shape
+    X = cart_map_cube.T.reshape(shape[1] * shape[2], shape[0])
+    pca = PCA(n_components=n_cmpt, whiten=True)
+
+    Y = pca.fit_transform(X)
+
+    print 'PCA: Percentage of variance explained by each of the selected components:'
+    print pca.explained_variance_ratio_
+
+    X_inv = functools.partial(inv_pca_sub, X, Y, pca)
+
+    map_pca_fitted = X_inv(n_cmpt).T.reshape(*shape)
+
+    return map_pca_fitted
+
+
 def bernstein_poly(i, n, x):
     return comb(n, i) * (x ** (n - i)) * (1 - x)**i
 

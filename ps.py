@@ -152,18 +152,32 @@ def get_power_spectra(alm, ll, mm):
     return ps
 
 
+def get_delay(freqs, M=None, dx=None, half=True):
+    if dx is None:
+        dx = freqs[1] - freqs[0]
+
+    df = 1 / (dx * M)
+    delay = df * np.arange(-(M / 2), M - (M / 2))
+
+    if half:
+        M = len(delay)
+        delay = delay[M / 2 + 1:]
+
+    return delay
+
+
 def get_2d_power_spectra(alm, ll, mm, freqs, M=None, window=None, dx=None, half=True, method='nudft'):
     if method == 'nudft':
         delay, nudft_cube = nudft(freqs, rmean(alm), M=M, w=window, dx=dx)
     else:
         delay, nudft_cube = lssa(freqs, rmean(alm), M=M, w=window, dx=dx)
 
+    ps2d = get_power_spectra(nudft_cube, ll, mm)
+
     if half:
         M = len(delay)
         delay = delay[M / 2 + 1:]
-        nudft_cube = nudft_cube[M / 2 + 1:]
-
-    ps2d = get_power_spectra(nudft_cube, ll, mm)
+        ps2d = 0.5 * (ps2d[M / 2 + 1:] + ps2d[:M / 2][::-1])
 
     return delay, ps2d
 
@@ -301,7 +315,7 @@ def plot_2d_power_spectra(ps, ll, delay, ax=None, title=None, kper=None, kpar=No
 
 
 def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
-                          ll, fwhm, nsigma=2, ax=None, title=None, k_par_start=0):
+                          ll, fwhm, nsigma=2, ax=None, title=None, k_par_start=0, diff_bias=None):
     if ax is None:
         fig, ax = plt.subplots()
 
@@ -313,11 +327,16 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
 
     dsp_v, dsp_v_err, _ = get_1d_power_spectra(ps2d_rec_v, k_per, k_par, ll, fwhm, bins, k_par_start)
 
+    dsp_diff, _, _ = get_1d_power_spectra(ps2d_sub - ps2d_rec_v, k_per, k_par, ll, fwhm, bins, k_par_start)
     # ax.errorbar(k_mean, dsp_rec, yerr=nsigma * dsp_rec_err, marker='+', label='I', c=plotutils.green)
+
+    if diff_bias is not None:
+        dsp_diff += diff_bias
+
     ax.errorbar(k_mean, dsp_sub, yerr=nsigma * dsp_sub_err, marker='+',
                 label='I - model', c=plotutils.blue)
     ax.errorbar(k_mean, dsp_v, yerr=nsigma * dsp_v_err, marker='+', label='V', c=plotutils.red)
-    ax.errorbar(k_mean, (dsp_sub - dsp_v), yerr=nsigma * np.sqrt(dsp_sub_err ** 2 + dsp_v_err ** 2),
+    ax.errorbar(k_mean, dsp_diff, yerr=nsigma * np.sqrt(dsp_sub_err ** 2 + dsp_v_err ** 2),
                 marker='o', label='(I - model) - V', c=plotutils.orange, mec=plotutils.orange, ms=4)
 
     ax.set_yscale('log')
@@ -331,6 +350,8 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
 
     if title is not None:
         ax.set_title(title)
+
+    return k_mean, dsp_diff
 
 
 def alm_to_cartmap(alm, ll, mm, nside, theta_max, n):

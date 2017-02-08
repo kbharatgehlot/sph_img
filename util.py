@@ -202,6 +202,25 @@ class Alm2VisTransMatrix(object):
         return alm
 
 
+class AbstractSimpleMatrix(object):
+
+    def __init__(self, n_rows, n_cols, dtype=np.dtype(np.float64)):
+        self.n_rows = n_rows
+        self.n_cols = n_cols
+        self.dtype = dtype
+        self.init_matrix()
+
+    def init_matrix(self):
+        self.data = np.zeros((self.n_rows, self.n_cols), dtype=self.dtype)
+        self.build_matrix(self.data)
+
+    def build_matrix(self, array):
+        pass
+
+    def get(self):
+        return self.data
+
+
 class AbstractMatrix(object):
 
     def __init__(self, rows, cols, dtype=np.dtype(np.float64)):
@@ -353,6 +372,36 @@ class YlmCachedMatrix(AbstractCachedMatrix, AbstractMatrix):
         rows = int_pairing(ll, mm)
         cols = real_pairing(phis, thetas)
         return AbstractMatrix.get(self, rows, cols)
+
+
+def ft_phaser_fct(u, v, w, l, m):
+    n = np.sqrt(1 - l ** 2 - m ** 2)
+    return 1 / n * np.exp(-2 * np.pi * 1j * (u * l + v * m + w * n))
+
+
+class FtMatrix(AbstractSimpleMatrix):
+
+    def __init__(self, uu, vv, ww, l, m):
+        self.uu = uu
+        self.vv = vv
+        self.ww = ww
+        self.l = l
+        self.m = m
+
+        AbstractSimpleMatrix.__init__(self, len(self.uu), len(self.l), np.dtype(np.complex128))
+
+    def build_matrix(self, array):
+        pool = Pool(processes=NUM_POOL)
+
+        # results_async = [pool.apply_async(ft_phaser_fct, (u, v, w, self.l, self.m))
+        #                  for u, v, w in zip(self.uu, self.vv, self.ww)]
+        results_async = [pool.apply_async(ft_phaser_fct, (self.uu, self.vv, self.ww, l, m))
+                         for l, m in zip(self.l, self.m)]
+
+        for i, result in enumerate(results_async):
+            array[:, i] = result.get()
+
+        pool.close()
 
 
 class YlmChunck(object):
@@ -1145,6 +1194,17 @@ def progress_tracker(n):
         return "%s / %s%s" % (i + 1, n, eta)
 
     return get_progress
+
+
+def partial_rev(func, *args, **keywords):
+    def newfunc(*fargs, **fkeywords):
+        newkeywords = keywords.copy()
+        newkeywords.update(fkeywords)
+        return func(*(fargs + args), **newkeywords)
+    newfunc.func = func
+    newfunc.args = args
+    newfunc.keywords = keywords
+    return newfunc
 
 
 def test_alm2vis():

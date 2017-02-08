@@ -1,4 +1,5 @@
 import os
+import sys
 import imp
 import glob
 import time
@@ -844,6 +845,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
         C_Dinv = diags([1 / (config.noiserms ** 2)] * len(Vobs))
 
     print '\nComputing LHS and RHS matrix ...',
+    sys.stdout.flush()
     X_r_dot_C_Dinv = C_Dinv.T.dot(X_r).T
     lhs_r = np.dot(X_r_dot_C_Dinv, X_r) + np.eye(X_r.shape[1]) * config.reg_lambda
     rhs_r = np.dot(X_r_dot_C_Dinv, Vobs.real)
@@ -854,6 +856,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
     print "Done in %.2f s" % (time.time() - t)
 
     print "Building covariance matrix ...",
+    sys.stdout.flush()
     t = time.time()
 
     if config.reg_lambda > 0:
@@ -926,6 +929,7 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
 
     if config.compute_alm_noise:
         print '\nComputing alm noise ...',
+        sys.stdout.flush()
         start = time.time()
         np.random.seed(config.vis_rnd_seed + i)
         rhs_noise_r = np.dot(X_r_dot_C_Dinv, config.noiserms * np.random.randn(len(Vobs)))
@@ -959,12 +963,10 @@ def ft_ml_inversion(uu, vv, ww, Vobs, config, include_pb=False):
     thx, thy = np.meshgrid(thxval, thyval)
     # Reconstruction phase kernel with w term
     start = time.time()
-    l = np.sin(thx.flatten())
-    m = np.sin(thy.flatten())
-    n = np.sqrt(1 - l ** 2 - m ** 2)
-    phaser = 1 / n * np.exp(-2 * np.pi * 1j * (uu[:, np.newaxis] * l +
-                                               vv[:, np.newaxis] * m +
-                                               ww[:, np.newaxis] * n))
+    l = thx.flatten()
+    m = thy.flatten()
+
+    phaser = util.FtMatrix(uu, vv, ww, l, m).get()
 
     print 'Size of the phase kernel: %s X %s' % (phaser.shape[0], phaser.shape[1])
 
@@ -983,10 +985,11 @@ def ft_ml_inversion(uu, vv, ww, Vobs, config, include_pb=False):
         C_Dinv = diags([1 / (config.noiserms ** 2)] * len(Vobs))
 
     phaser_dot_C_Dinv = C_Dinv.T.dot(np.conjugate(phaser)).T
-    lhs = np.dot(phaser_dot_C_Dinv, phaser)
+    lhs = np.dot(phaser_dot_C_Dinv, phaser) + np.eye(phaser.shape[1]) * config.reg_lambda
     rhs = np.dot(phaser_dot_C_Dinv, Vobs)
 
     print '\nStarting CG inversion ...',
+    sys.stdout.flush()
     start = time.time()
     X_ML, info = cg(lhs, rhs, tol=config.cg_tol, maxiter=config.cg_maxiter)
     res = np.linalg.norm(rhs - np.dot(lhs, abs(X_ML))) / np.linalg.norm(rhs)
@@ -1049,9 +1052,9 @@ def save_alm_simu(dirname, ll, mm, alm):
     save_data(filename, [ll, mm, alm], columns)
 
 
-def save_alm_rec(dirname, ll, mm, alm_rec, alm_rec_noise, cov_error):
+def save_alm_rec(dirname, ll, mm, alm_rec, alm_rec_noise, cov_error, filename='alm_rec.dat'):
     columns = ['ll', 'mm', 'alm_rec', 'alm_rec_noise', 'cov_error']
-    filename = os.path.join(dirname, 'alm_rec.dat')
+    filename = os.path.join(dirname, filename)
     save_data(filename, [ll, mm, alm_rec, alm_rec_noise, cov_error], columns)
 
 
@@ -1491,6 +1494,7 @@ def do_inversion(config, result_dir):
         if global_sel_ylm != global_inp_ylm:
             t = time.time()
             print "Building transformation matrix...",
+            sys.stdout.flush()
             sel_ylm = global_sel_ylm.get_chunk(bmin, bmax)
             trm = util.get_alm2vis_matrix(sel_ll, sel_mm, sel_ylm, lamb, order='F')
             print "Done in %.2f s" % (time.time() - t)
@@ -1560,6 +1564,7 @@ def do_inversion(config, result_dir):
 
         t = time.time()
         print "Waiting for plotting to finish...",
+        sys.stdout.flush()
         plot_pool.close()
         plot_pool.join()
         print "Done in %.2f s" % (time.time() - t)
@@ -1656,6 +1661,10 @@ def do_inversion_gridded(config, result_dir):
         alm_rec_noise = alm_rec_noise * jy2k
         cov_error = cov_error * jy2k
 
+        # Saving full alm before post-processing
+        save_alm_rec(result_freq_dir, ll, mm, alm_rec, alm_rec_noise, cov_error,
+                     filename='alm_rec_full.dat')
+
         print "Post processing..."
         # When w=0, odd l+m modes are not recovered, we compute them by interpolation
         alm_rec, ll2, mm2 = alm_post_processing(alm_rec, ll, mm, config)
@@ -1704,6 +1713,7 @@ def do_inversion_gridded(config, result_dir):
 
         t = time.time()
         print "Waiting for plotting to finish...",
+        sys.stdout.flush()
         plot_pool.close()
         plot_pool.join()
         print "Done in %.2f s" % (time.time() - t)
