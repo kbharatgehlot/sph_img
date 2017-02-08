@@ -1513,13 +1513,18 @@ def do_inversion(config, result_dir):
         save_alm(result_freq_dir, sel_ll, sel_mm, sel_alm, fg_alms[i][idx],
                  eor_alms[i][idx], alm_rec, alm_rec_noise, cov_error, filename='alm_full.dat')
 
-        print "Post processing..."
+        t = time.time()
+        print "Post processing...",
+        sys.stdout.flush()
+
         alm_rec, _, _ = alm_post_processing(alm_rec, sel_ll, sel_mm, config)
         alm_rec_noise, _, _ = alm_post_processing(alm_rec_noise, sel_ll, sel_mm, config)
         cov_error, _, _ = alm_post_processing(cov_error, sel_ll, sel_mm, config, sampling_alone=True)
         sel_alm, _, _ = alm_post_processing(sel_alm, sel_ll, sel_mm, config)
         sel_fg, _, _ = alm_post_processing(fg_alms[i][idx], sel_ll, sel_mm, config)
         sel_eor, sel_ll, sel_mm = alm_post_processing(eor_alms[i][idx], sel_ll, sel_mm, config)
+
+        print "Done in %.2f s" % (time.time() - t)
 
         alms_rec.append(alm_rec)
 
@@ -1531,43 +1536,44 @@ def do_inversion(config, result_dir):
         vlm_rec = util.alm2vlm(alm_rec, sel_ll)
         vlm_rec_noise = util.alm2vlm(alm_rec_noise, sel_ll)
 
-        print "Plotting result..."
-        # plot vlm vs vlm_rec
-        plot_pool.apply_async(plot_vlm_vs_vlm_rec, (sel_ll, sel_mm, sel_vlm, vlm_rec,
-                                                    os.path.join(result_freq_dir, 'vlm_vs_vlm_rec.pdf')))
+        if config.do_plot:
+            print "Plotting result..."
+            # plot vlm vs vlm_rec
+            plot_pool.apply_async(plot_vlm_vs_vlm_rec, (sel_ll, sel_mm, sel_vlm, vlm_rec,
+                                                        os.path.join(result_freq_dir, 'vlm_vs_vlm_rec.pdf')))
 
-        # plot vlm vs vlm_rec in a map
-        plot_pool.apply_async(plot_vlm_vs_vlm_rec_map, (sel_ll, sel_mm, sel_vlm, vlm_rec, 4 * np.pi * cov_error,
-                                                        os.path.join(result_freq_dir, 'lm_maps_imag.pdf')))
+            # plot vlm vs vlm_rec in a map
+            plot_pool.apply_async(plot_vlm_vs_vlm_rec_map, (sel_ll, sel_mm, sel_vlm, vlm_rec, 4 * np.pi * cov_error,
+                                                            os.path.join(result_freq_dir, 'lm_maps_imag.pdf')))
 
-        # plot power spectra
-        plot_power_spectra(sel_ll, sel_mm, sel_alm, alm_rec, config, alm_rec_noise,
-                           os.path.join(result_freq_dir, 'angular_power_spectra.pdf'))
+            # plot power spectra
+            plot_power_spectra(sel_ll, sel_mm, sel_alm, alm_rec, config, alm_rec_noise,
+                               os.path.join(result_freq_dir, 'angular_power_spectra.pdf'))
 
-        # plot vlm diff
-        plot_pool.apply_async(plot_vlm_diff, (sel_ll, sel_mm, sel_vlm, vlm_rec, 4 * np.pi * cov_error,
-                                              os.path.join(result_freq_dir, 'vlm_minus_vlm_rec.pdf')))
+            # plot vlm diff
+            plot_pool.apply_async(plot_vlm_diff, (sel_ll, sel_mm, sel_vlm, vlm_rec, 4 * np.pi * cov_error,
+                                                  os.path.join(result_freq_dir, 'vlm_minus_vlm_rec.pdf')))
 
-        plot_pool.apply_async(plot_vlm_diff, (sel_ll, sel_mm, np.zeros_like(vlm_rec), vlm_rec_noise,
-                                              4 * np.pi * cov_error,
-                                              os.path.join(result_freq_dir, 'vlm_minus_vlm_noise.pdf')))
+            plot_pool.apply_async(plot_vlm_diff, (sel_ll, sel_mm, np.zeros_like(vlm_rec), vlm_rec_noise,
+                                                  4 * np.pi * cov_error,
+                                                  os.path.join(result_freq_dir, 'vlm_minus_vlm_noise.pdf')))
 
-        # plot visibilities diff
-        plot_pool.apply_async(plot_vis_simu_diff, (ru, V, Vobs, Vrec, os.path.join(result_freq_dir,
-                                                                                   'vis_minus_vis_rec.pdf')))
+            # plot visibilities diff
+            plot_pool.apply_async(plot_vis_simu_diff, (ru, V, Vobs, Vrec, os.path.join(result_freq_dir,
+                                                                                       'vis_minus_vis_rec.pdf')))
 
-        # plot output sky
-        plot_pool.apply_async(plot_sky_cart_diff, (sel_alm, alm_rec, sel_ll, sel_mm, sel_ll, sel_mm, config.nside),
-                              dict(theta_max=config.fwhm, savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
+            # plot output sky
+            plot_pool.apply_async(plot_sky_cart_diff, (sel_alm, alm_rec, sel_ll, sel_mm, sel_ll, sel_mm, config.nside),
+                                  dict(theta_max=config.fwhm, savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
 
-        # write_gridded_visibilities(result_freq_dir, 'gridded_vis', V, config, freq, 1)
+            # write_gridded_visibilities(result_freq_dir, 'gridded_vis', V, config, freq, 1)
 
-        t = time.time()
-        print "Waiting for plotting to finish...",
-        sys.stdout.flush()
-        plot_pool.close()
-        plot_pool.join()
-        print "Done in %.2f s" % (time.time() - t)
+            t = time.time()
+            print "Waiting for plotting to finish...",
+            sys.stdout.flush()
+            plot_pool.close()
+            plot_pool.join()
+            print "Done in %.2f s" % (time.time() - t)
 
         if config.do_ft_inv:
             print "\nStarting FT ML inversion ..."

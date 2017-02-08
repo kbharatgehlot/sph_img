@@ -199,6 +199,8 @@ reduce_fov_theta_max = fwhm
 reduce_fov_lmin = out_lmin
 reduce_fov_lmax = out_lmax
 
+do_plot = True
+
 # =================================================================
 # General parameters
 # =================================================================
