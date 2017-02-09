@@ -1210,7 +1210,7 @@ def load_results_v2(dirname):
     return ll.astype(int), mm.astype(int), alm, alm_fg, alm_eor, alm_rec, cov_error, ru, uphis, uthetas, V, Vobs, Vrec
 
 
-def load_results_v3(dirname):
+def load_results_v3(dirname, alm_only=False):
     if not os.path.exists(dirname):
         print "Path does not exists:", dirname
         return
@@ -1220,13 +1220,22 @@ def load_results_v3(dirname):
     freq_res = []
     for freq_dir in sorted(glob.glob(os.path.join(dirname, 'freq_*')), key=key_fct):
         ll, mm, alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error = load_alm(freq_dir)
-        ru, uphis, uthetas, V, Vobs, Vrec = load_visibilities(freq_dir)
-        freq_res.append([alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error, ru, uphis, uthetas, V, Vobs, Vrec])
+        if not alm_only:
+            ru, uphis, uthetas, V, Vobs, Vrec = load_visibilities(freq_dir)
+            freq_res.append([alm, alm_fg, alm_eor, alm_rec, alm_rec_noise,
+                             cov_error, ru, uphis, uthetas, V, Vobs, Vrec])
+        else:
+            freq_res.append([alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error])
 
-    alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error, ru, uphis, uthetas, V, Vobs, Vrec = zip(*freq_res)
+    if not alm_only:
+        alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error, ru, uphis, uthetas, V, Vobs, Vrec = zip(*freq_res)
 
-    return ll.astype(int), mm.astype(int), alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error, \
-        ru, uphis, uthetas, V, Vobs, Vrec
+        return ll.astype(int), mm.astype(int), alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error, \
+            ru, uphis, uthetas, V, Vobs, Vrec
+    else:
+        alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error = zip(*freq_res)
+
+        return ll.astype(int), mm.astype(int), alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error
 
 
 def save_fits_img(cart_map, res, freq, dfreq, dirname, filename):
@@ -1407,7 +1416,9 @@ def do_inversion(config, result_dir):
     for i, freq in enumerate(config.freqs_mhz):
         sel_ll, sel_mm = get_out_lm_sampling(config)
 
-        plot_pool = multiprocessing.Pool(processes=1)
+        if config.do_plot:
+            plot_pool = multiprocessing.Pool(processes=1)
+
         print "\nProcessing frequency %s MHz (%s)" % (freq, pt(i))
 
         lamb = const.c.value / (float(freq) * 1e6)
@@ -1639,7 +1650,9 @@ def do_inversion_gridded(config, result_dir):
 
         freqs.append(freq)
 
-        plot_pool = multiprocessing.Pool(processes=4)
+        if config.do_plot:
+            plot_pool = multiprocessing.Pool(processes=4)
+
         print "\nProcessing frequency %.3f MHz" % (freq * 1e-6)
 
         result_freq_dir = os.path.join(result_dir, 'freq_%s' % i)
@@ -1651,12 +1664,14 @@ def do_inversion_gridded(config, result_dir):
         print "Done in %.2f s" % (time.time() - t)
 
         # plotting the visibilities
-        plot_pool.apply_async(plot_visibilities, (uu, vv, ww, Vobs, os.path.join(result_freq_dir, 'visibilities.pdf')))
-        plot_pool.apply_async(plot_2d_visibilities, (uu, vv, Vobs,
-                                                     os.path.join(result_freq_dir, 'visibilities_2d.pdf')))
+        if config.do_plot:
+            plot_pool.apply_async(plot_visibilities, (uu, vv, ww, Vobs,
+                                                      os.path.join(result_freq_dir, 'visibilities.pdf')))
+            plot_pool.apply_async(plot_2d_visibilities, (uu, vv, Vobs,
+                                                         os.path.join(result_freq_dir, 'visibilities_2d.pdf')))
 
-        plot_pool.apply_async(plot_2d_visibilities, (uu, vv, config.noiserms,
-                                                     os.path.join(result_freq_dir, 'vis_error_2d.pdf')))
+            plot_pool.apply_async(plot_2d_visibilities, (uu, vv, config.noiserms,
+                                                         os.path.join(result_freq_dir, 'vis_error_2d.pdf')))
 
         alm_rec, alm_rec_noise, Vrec, cov_error = alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config)
 
@@ -1685,44 +1700,43 @@ def do_inversion_gridded(config, result_dir):
         save_alm_rec(result_freq_dir, ll2, mm2, alm_rec, alm_rec_noise, cov_error)
         save_visibilities_rec(result_freq_dir, ru, uphis, uthetas, Vobs, Vrec)
 
-        print "Plotting result"
+        if config.do_plot:
+            print "Plotting result"
 
-        # plot vlm_rec
-        plot_pool.apply_async(plot_vlm_rec_map, (ll2, mm2, vlm_rec, 4 * np.pi * cov_error,
-                              os.path.join(result_freq_dir, 'vlm_rec_map.pdf')),
-                              dict(vmin=1e-5, vmax=1e-2))
+            # plot vlm_rec
+            plot_pool.apply_async(plot_vlm_rec_map, (ll2, mm2, vlm_rec, 4 * np.pi * cov_error,
+                                  os.path.join(result_freq_dir, 'vlm_rec_map.pdf')),
+                                  dict(vmin=1e-5, vmax=1e-2))
 
-        plot_pool.apply_async(plot_vlm, (ll2, mm2, vlm_rec, os.path.join(result_freq_dir, 'vlm_rec.pdf')))
-        plot_pool.apply_async(plot_vlm, (ll2, mm2, vlm_rec_noise,
-                              os.path.join(result_freq_dir, 'vlm_rec_noise.pdf')))
+            plot_pool.apply_async(plot_vlm, (ll2, mm2, vlm_rec, os.path.join(result_freq_dir, 'vlm_rec.pdf')))
+            plot_pool.apply_async(plot_vlm, (ll2, mm2, vlm_rec_noise,
+                                  os.path.join(result_freq_dir, 'vlm_rec_noise.pdf')))
 
-        plot_pool.apply_async(plot_vlm, (ll2, mm2, 4 * np.pi * cov_error,
-                              os.path.join(result_freq_dir, 'vlm_cov_error.pdf')))
+            plot_pool.apply_async(plot_vlm, (ll2, mm2, 4 * np.pi * cov_error,
+                                  os.path.join(result_freq_dir, 'vlm_cov_error.pdf')))
 
-        # plot visibilities
-        plot_pool.apply_async(plot_vis_diff, (ru, Vobs, Vrec,
-                              os.path.join(result_freq_dir, 'vis_minus_vis_rec.pdf')))
+            # plot visibilities
+            plot_pool.apply_async(plot_vis_diff, (ru, Vobs, Vrec,
+                                  os.path.join(result_freq_dir, 'vis_minus_vis_rec.pdf')))
 
-        # plot output sky
-        plot_pool.apply_async(plot_sky_cart, (alm_rec, ll2, mm2, config.nside),
-                              dict(theta_max=1 * config.fwhm,
-                              savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
+            # plot output sky
+            plot_pool.apply_async(plot_sky_cart, (alm_rec, ll2, mm2, config.nside),
+                                  dict(theta_max=1 * config.fwhm,
+                                  savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
 
-        # plot power spectra
-        plot_pool.apply_async(plot_rec_power_sepctra, (ll2, mm2, alm_rec,
-                              os.path.join(result_freq_dir, 'angular_power_spectra.pdf')))
+            # plot power spectra
+            plot_pool.apply_async(plot_rec_power_sepctra, (ll2, mm2, alm_rec,
+                                  os.path.join(result_freq_dir, 'angular_power_spectra.pdf')))
 
-        plot_pool.apply_async(plot_vis_vs_vis_rec, (ru, Vobs, Vrec,
-                              os.path.join(result_freq_dir, 'vis_vs_vis_rec.pdf')))
+            plot_pool.apply_async(plot_vis_vs_vis_rec, (ru, Vobs, Vrec,
+                                  os.path.join(result_freq_dir, 'vis_vs_vis_rec.pdf')))
 
-        print nputils.stat(Vobs - Vrec)
-
-        t = time.time()
-        print "Waiting for plotting to finish...",
-        sys.stdout.flush()
-        plot_pool.close()
-        plot_pool.join()
-        print "Done in %.2f s" % (time.time() - t)
+            t = time.time()
+            print "Waiting for plotting to finish...",
+            sys.stdout.flush()
+            plot_pool.close()
+            plot_pool.join()
+            print "Done in %.2f s" % (time.time() - t)
 
     global_ylm.close()
 

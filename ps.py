@@ -328,7 +328,7 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
     dsp_v, dsp_v_err, _ = get_1d_power_spectra(ps2d_rec_v, k_per, k_par, ll, fwhm, bins, k_par_start)
 
     dsp_diff, _, _ = get_1d_power_spectra(ps2d_sub - ps2d_rec_v, k_per, k_par, ll, fwhm, bins, k_par_start)
-    # ax.errorbar(k_mean, dsp_rec, yerr=nsigma * dsp_rec_err, marker='+', label='I', c=plotutils.green)
+    ax.errorbar(k_mean, dsp_rec, yerr=nsigma * dsp_rec_err, marker='+', label='I', c=plotutils.green)
 
     if diff_bias is not None:
         dsp_diff += diff_bias
@@ -346,7 +346,7 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
     ax.set_xlabel('$k [h\,cMpc^{-1}]$')
 
     ax.set_xlim(bins.min(), bins.max())
-    ax.legend(loc=2)
+    ax.legend(loc=4)
 
     if title is not None:
         ax.set_title(title)

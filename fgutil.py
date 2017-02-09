@@ -48,6 +48,33 @@ def alm_pca_fit(alm, n_cmpt):
     return alm_pca_fitted
 
 
+def alm_gmca_fit(alm, n_cmpt, mints=0, do_wave_transform=False):
+    from pyGMCA.bss.amca import pyAMCA as pam
+    from pyredwave import RedWave
+
+    X = alm
+    if do_wave_transform:
+        rwr = RedWave(X.real, 0, isometric=True)
+        Xwr = rwr.forward(X.real)
+        rwi = RedWave(X.imag, 0, isometric=True)
+        Xwi = rwi.forward(X.imag)
+    else:
+        Xwr = X.real
+        Xwi = X.imag
+
+    Sr, Ar = pam.AMCA(Xwr, n_cmpt, mints=mints)
+    Si, Ai = pam.AMCA(Xwi, n_cmpt, mints=mints)
+
+    if do_wave_transform:
+        Yr = rwr.backward(np.dot(Ar, Sr).real)
+        Yi = rwr.backward(np.dot(Ai, Si).real)
+    else:
+        Yr = np.dot(Ar, Sr).real
+        Yi = np.dot(Ai, Si).real
+
+    return Yr + 1j * Yi
+
+
 def map_pca_fit(cart_map_cube, n_cmpt):
     shape = cart_map_cube.shape
     X = cart_map_cube.T.reshape(shape[1] * shape[2], shape[0])

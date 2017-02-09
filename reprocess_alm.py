@@ -50,7 +50,7 @@ for i, freq_dir in enumerate(freq_dirs):
     ll = ll.astype(int)
     mm = mm.astype(int)
 
-    print "Post processing..."
+    # print "Post processing..."
     alm_rec, _, _ = sphimg.alm_post_processing(alm_rec, ll, mm, config_reprocess)
     alm_rec_noise, _, _ = sphimg.alm_post_processing(alm_rec_noise, ll, mm, config_reprocess)
     cov_error, _, _ = sphimg.alm_post_processing(cov_error, ll, mm, config_reprocess, sampling_alone=True)
