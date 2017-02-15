@@ -1707,7 +1707,7 @@ def do_inversion_gridded(config, result_dir):
     alms_rec = []
     freqs = []
 
-    pt = util.progress_tracker(len(config.freqs_mhz))
+    pt = util.progress_tracker(len(config.gridded_fits))
 
     for i, file in enumerate(sorted(config.gridded_fits)):
         freq, _, _, Vobs, noiserms = read_gridded_visbilities(file, config)
