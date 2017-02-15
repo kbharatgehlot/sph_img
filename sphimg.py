@@ -1707,6 +1707,8 @@ def do_inversion_gridded(config, result_dir):
     alms_rec = []
     freqs = []
 
+    pt = util.progress_tracker(len(config.freqs_mhz))
+
     for i, file in enumerate(sorted(config.gridded_fits)):
         freq, _, _, Vobs, noiserms = read_gridded_visbilities(file, config)
 
@@ -1718,7 +1720,7 @@ def do_inversion_gridded(config, result_dir):
         if config.do_plot:
             plot_pool = multiprocessing.Pool(processes=4)
 
-        print "\nProcessing frequency %.3f MHz" % (freq * 1e-6)
+        print "\nProcessing frequency %.3f MHz (%s)" % (freq * 1e-6, pt(i))
 
         result_freq_dir = os.path.join(result_dir, 'freq_%s' % i)
         os.mkdir(result_freq_dir)
@@ -1767,6 +1769,10 @@ def do_inversion_gridded(config, result_dir):
 
         if config.do_plot:
             print "Plotting result"
+            # plot output sky
+            plot_pool.apply_async(plot_sky_cart, (alm_rec, ll2, mm2, config.nside),
+                                  dict(theta_max=1 * config.fwhm,
+                                  savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
 
             # plot vlm_rec
             plot_pool.apply_async(plot_vlm_rec_map, (ll2, mm2, vlm_rec, 4 * np.pi * cov_error,
@@ -1783,11 +1789,6 @@ def do_inversion_gridded(config, result_dir):
             # plot visibilities
             plot_pool.apply_async(plot_vis_diff, (ru, Vobs, Vrec,
                                   os.path.join(result_freq_dir, 'vis_minus_vis_rec.pdf')))
-
-            # plot output sky
-            plot_pool.apply_async(plot_sky_cart, (alm_rec, ll2, mm2, config.nside),
-                                  dict(theta_max=1 * config.fwhm,
-                                  savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
 
             # plot power spectra
             plot_rec_power_sepctra(ll2, mm2, alm_rec, config, os.path.join(result_freq_dir,
