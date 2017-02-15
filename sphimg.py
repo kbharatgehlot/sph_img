@@ -13,7 +13,7 @@ import healpy as hp
 import matplotlib.pyplot as plt
 from matplotlib.image import AxesImage
 
-from libwise import plotutils, nputils
+from libwise import plotutils
 from libwise import scriptshelper as sh
 
 from scipy.sparse.linalg import cg
@@ -128,9 +128,10 @@ def plot_cart_map_rec(cart_map, config, savefile=None):
 
     theta_max = config.ft_inv_res * config.ft_inv_ny / 2.
 
-    plot_cart_map(cart_map_rec, theta_max, ax=ax)
-    ax.text(0.92, 0.05, 'rms residual: %.3e\nmax residual: %.3e' % (cart_map_rec.std(), cart_map_rec.max()),
-             ha='right', va='center', transform=ax.transAxes)
+    plot_cart_map(cart_map, theta_max, ax=ax)
+
+    ax.text(0.92, 0.05, 'rms residual: %.3e\nmax residual: %.3e' % (cart_map.std(), cart_map.max()),
+            ha='right', va='center', transform=ax.transAxes)
 
     if savefile is not None:
         fig.tight_layout()
@@ -1816,7 +1817,7 @@ def do_inversion_gridded(config, result_dir):
 
             save_fits_img(ml_cart_map_rec, res, float(freq) * 1e6, 1, result_freq_dir, 'cart_map_rec.fits')
 
-            plot_cart_rec_power_sepctra(ml_cart_map_rec, np.unique(ll), config,
+            plot_cart_rec_power_sepctra(ml_cart_map_rec, np.unique(ll2), config,
                                         savefile=os.path.join(result_freq_dir, 'power_spectra_ft_ml.pdf'))
 
             plot_cart_map_rec(ml_cart_map_rec_bp, config, savefile=os.path.join(result_freq_dir, 'cart_map_ft_ml.pdf'))
