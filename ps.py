@@ -155,6 +155,8 @@ def get_power_spectra(alm, ll, mm):
 def get_delay(freqs, M=None, dx=None, half=True):
     if dx is None:
         dx = freqs[1] - freqs[0]
+    if M is None:
+        M = len(freqs)
 
     df = 1 / (dx * M)
     delay = df * np.arange(-(M / 2), M - (M / 2))
@@ -216,7 +218,17 @@ def get_2d_power_spectra_cart(cart_cube, res, el, freqs, M=None, window=None, dx
     return delay, ps2d
 
 
-def get_1d_power_spectra(ps2d, k_per, k_par, ll, fwhm, bins, k_par_start=0):
+def get_1d_ps_sample_count(k_par, k_per, el, bins, f_sky):
+    el_full = np.arange(min(el), max(el))
+    k_per_full = el_full * k_per[0] / el[0]
+    k_full = np.sqrt(k_per_full ** 2 + k_par[:, np.newaxis] ** 2)
+    mcount = np.repeat((2 * el_full + 1.)[np.newaxis, :], len(k_par), axis=0)
+    bins_mcount, _, _ = stats.binned_statistic(k_full.flatten(), mcount.flatten(), 'sum', bins)
+
+    return bins_mcount * f_sky
+
+
+def get_1d_power_spectra(ps2d, k_per, k_par, ll, f_sky, bins, k_par_start=0):
     k = np.sqrt(k_per ** 2 + k_par[k_par_start:, np.newaxis] ** 2)
 
     # mbin = np.array([a + (b - a) / 2. for a, b in nputils.pairwise(bins)])
@@ -225,10 +237,12 @@ def get_1d_power_spectra(ps2d, k_per, k_par, ll, fwhm, bins, k_par_start=0):
 
     dsp, bins, _ = stats.binned_statistic(k.flatten(), ps2d[k_par_start:].flatten(), 'mean', bins)
 
-    el = np.unique(ll)
-    a = np.sqrt(2 * np.pi) * nputils.gaussian_fwhm_to_sigma(np.radians(fwhm))
-    mcount = np.repeat((2 * el + 1.)[np.newaxis, :] * a, ps2d[k_par_start:].shape[0], axis=0)
-    bins_mcount, _, _ = stats.binned_statistic(k.flatten(), mcount.flatten(), 'sum', bins)
+    # el = np.unique(ll)
+    # a = np.sqrt(2 * np.pi) * nputils.gaussian_fwhm_to_sigma(np.radians(fwhm))
+    # mcount = np.repeat((2 * el + 1.)[np.newaxis, :] * a, ps2d[k_par_start:].shape[0], axis=0)
+    # bins_mcount, _, _ = stats.binned_statistic(k.flatten(), mcount.flatten(), 'sum', bins)
+
+    bins_mcount = get_1d_ps_sample_count(k_par, k_per, np.unique(ll), bins, f_sky)
 
     dsp_err = np.sqrt(2 / bins_mcount) * dsp * k_norm
 
@@ -274,12 +288,12 @@ def plot_2d_power_spectra(ps, ll, delay, ax=None, title=None, kper=None, kpar=No
                           kper_only=True, log_norm=True, **kargs):
     if ax is None:
         fig, ax = plt.subplots()
-    pad = '3%'
+    pad = '5%'
 
     if kper is not None:
         extent = (min(kper), max(kper), min(kpar), max(kpar))
-        ax.set_xlabel('$k_{\\bot} [h\,cMpc^{-1}]$')
-        ax.set_ylabel('$k_{\parallel} [h\,cMpc^{-1}]$')
+        ax.set_xlabel('$k_{\\bot}\,\mathrm{[h\,cMpc^{-1}]}}$')
+        ax.set_ylabel('$k_{\parallel}\,\mathrm{[h\,cMpc^{-1}]}}$')
         if not kper_only:
             axb = ax.twiny()
             axb.set_xlim(min(ll), max(ll))
@@ -328,7 +342,8 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
     dsp_v, dsp_v_err, _ = get_1d_power_spectra(ps2d_rec_v, k_per, k_par, ll, fwhm, bins, k_par_start)
 
     dsp_diff, _, _ = get_1d_power_spectra(ps2d_sub - ps2d_rec_v, k_per, k_par, ll, fwhm, bins, k_par_start)
-    ax.errorbar(k_mean, dsp_rec, yerr=nsigma * dsp_rec_err, marker='+', label='I', c=plotutils.green)
+    
+    # ax.errorbar(k_mean, dsp_rec, yerr=nsigma * dsp_rec_err, marker='+', label='I', c=plotutils.green)
 
     if diff_bias is not None:
         dsp_diff += diff_bias
@@ -342,11 +357,11 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
     ax.set_yscale('log')
     ax.set_xscale('log')
 
-    ax.set_ylabel('$\Delta^2 (k) [mK^2]$')
-    ax.set_xlabel('$k [h\,cMpc^{-1}]$')
+    ax.set_ylabel('$\Delta^2 (k)\,[\mathrm{mK^2}]$')
+    ax.set_xlabel('$k\,[\mathrm{h\,cMpc^{-1}}]$')
 
     ax.set_xlim(bins.min(), bins.max())
-    ax.legend(loc=4)
+    # ax.legend(loc=4)
 
     if title is not None:
         ax.set_title(title)

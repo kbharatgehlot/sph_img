@@ -361,7 +361,14 @@ def plot_2d_power_spectra(ll, mm, alms, freqs, config, savefile=None, vmin=1e-14
 
 
 def plot_rec_power_sepctra(ll, mm, alm, savefile=None):
-    ps = psutil.get_power_spectra(alm, ll, mm)
+    if config.do_reduce_fov:
+        theta_max = config.reduce_fov_theta_max
+    else:
+        theta_max = None
+
+    pb_corr = ps.get_sph_pb_corr('gaussian', config.fwhm, theta_max, config.nside)
+
+    ps = psutil.get_power_spectra(alm, ll, mm) * pb_corr
 
     fig, ax1 = plt.subplots()
     ax1.plot(np.unique(ll), ps, label='Beam modulated power spectra')
@@ -777,14 +784,24 @@ def l_sampling(ll, mm, dl, lmin=None, lmax=None):
     return ll2, mm2, idx
 
 
-def reduce_fov(ll, mm, alm, theta_max, nside):
-    thetas, phis = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
-    fov_cut = util.tophat_beam(thetas, 2 * theta_max)
-    alm_cut = hp.map2alm(util.fast_alm2map(alm, ll, mm, nside) * fov_cut, max(ll))
+def apply_window_function(ll, mm, alm, window):
+    alm_cut = hp.map2alm(util.fast_alm2map(alm, ll, mm, hp.get_nside(window)) * window, max(ll))
     llf, mmf = util.get_lm(max(ll))
     idx = util.get_lm_selection_index(llf, mmf, ll, mm)
 
     return alm_cut[idx]
+
+
+def reduce_fov(ll, mm, alm, theta_max, nside):
+    thetas, phis = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+    fov_cut = util.tophat_beam(thetas, 2 * theta_max)
+    return apply_window_function(ll, mm, alm, fov_cut)
+
+
+def de_apodize(ll, mm, alm, window, res, nside):
+    inv_window_hp = 1 / util.cartmap2healpix(window, res, nside)
+    inv_window_hp[~np.isfinite(inv_window_hp)] = 0
+    return apply_window_function(ll, mm, alm, inv_window_hp)
 
 
 def compute_visibilities(alm, ll, mm, uphis, uthetas, i, trm):
@@ -792,6 +809,34 @@ def compute_visibilities(alm, ll, mm, uphis, uthetas, i, trm):
     V = np.dot(alm_r, trm.T_r) + 1j * np.dot(alm_i, trm.T_i)
 
     return V
+
+
+def alm_post_processing(alm, ll, mm, config, sampling_alone=False):
+    ''' Post processing'''
+    if config.do_lm_interp and config.out_lm_even_only:
+        alm, ll, mm = interpolate_lm_odd(alm, ll, mm, config)
+    if (config.do_reduce_fov or config.do_de_apodize) and not sampling_alone:
+        idx = (ll >= config.reduce_fov_lmin) & (ll <= config.reduce_fov_lmax)
+        ll, mm = ll[idx], mm[idx]
+        alm = alm[idx]
+        thetas, phis = hp.pix2ang(config.nside, np.arange(hp.nside2npix(config.nside)))
+        window = 1
+        if config.do_reduce_fov:
+            fov_cut = util.tophat_beam(thetas, 2 * config.reduce_fov_theta_max)
+            window = window * fov_cut
+        if config.do_de_apodize:
+            apodize_window = np.squeeze(pyfits.getdata(config.apodize_window_file))
+            inv_window_hp = 1 / util.cartmap2healpix(apodize_window, config.apodize_window_res, config.nside)
+            inv_window_hp[~np.isfinite(inv_window_hp)] = 0
+            window = window * inv_window_hp
+        alm = apply_window_function(ll, mm, alm, window)
+    if config.do_l_smoothing and not config.out_lm_even_only and not sampling_alone:
+        alm = l_smoothing(alm, ll, mm)
+    if config.do_l_sampling:
+        ll, mm, idx = l_sampling(ll, mm, config.l_sampling_dl, config.l_sampling_lmin, config.l_sampling_lmax)
+        alm = alm[idx]
+
+    return alm, ll, mm
 
 
 def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
@@ -998,23 +1043,6 @@ def ft_ml_inversion(uu, vv, ww, Vobs, config, include_pb=False):
     return np.real(X_ML.reshape(Nx, Ny))
 
 
-def alm_post_processing(alm, ll, mm, config, sampling_alone=False):
-    ''' Post processing'''
-    if config.do_lm_interp and config.out_lm_even_only:
-        alm, ll, mm = interpolate_lm_odd(alm, ll, mm, config)
-    if config.do_reduce_fov and not sampling_alone:
-        idx = (ll >= config.reduce_fov_lmin) & (ll <= config.reduce_fov_lmax)
-        ll, mm = ll[idx], mm[idx]
-        alm = reduce_fov(ll, mm, alm[idx], config.reduce_fov_theta_max, config.nside)
-    if config.do_l_smoothing and not config.out_lm_even_only and not sampling_alone:
-        alm = l_smoothing(alm, ll, mm)
-    if config.do_l_sampling:
-        ll, mm, idx = l_sampling(ll, mm, config.l_sampling_dl, config.l_sampling_lmin, config.l_sampling_lmax)
-        alm = alm[idx]
-
-    return alm, ll, mm
-
-
 def get_config(dirname, filename='config.py'):
     return imp.load_source('config', os.path.join(dirname, filename))
 
@@ -1072,8 +1100,8 @@ def load_alm_simu(dirname):
     return df.ll, df.mm, df.alm
 
 
-def load_alm_rec(dirname):
-    filename = os.path.join(dirname, 'alm_rec.dat')
+def load_alm_rec(dirname, filename='alm_rec.dat'):
+    filename = os.path.join(dirname, filename)
     df = load_data(filename, ['alm_rec', 'alm_rec_noise', 'cov_error'])
 
     return df.ll, df.mm, df.alm_rec, df.alm_rec_noise, df.cov_error
@@ -1210,7 +1238,7 @@ def load_results_v2(dirname):
     return ll.astype(int), mm.astype(int), alm, alm_fg, alm_eor, alm_rec, cov_error, ru, uphis, uthetas, V, Vobs, Vrec
 
 
-def load_results_v3(dirname, alm_only=False):
+def load_results_v3(dirname, alm_only=False, alm_filename='alm.dat'):
     if not os.path.exists(dirname):
         print "Path does not exists:", dirname
         return
@@ -1219,7 +1247,7 @@ def load_results_v3(dirname, alm_only=False):
     key_fct = lambda a: int(a.split('_')[-1])
     freq_res = []
     for freq_dir in sorted(glob.glob(os.path.join(dirname, 'freq_*')), key=key_fct):
-        ll, mm, alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error = load_alm(freq_dir)
+        ll, mm, alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error = load_alm(freq_dir, filename=alm_filename)
         if not alm_only:
             ru, uphis, uthetas, V, Vobs, Vrec = load_visibilities(freq_dir)
             freq_res.append([alm, alm_fg, alm_eor, alm_rec, alm_rec_noise,

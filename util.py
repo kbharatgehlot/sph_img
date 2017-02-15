@@ -557,6 +557,15 @@ def strip_mm(ll, mm, mmax_fct):
     return ll2, mm2
 
 
+def get_sampled_lm(lmax, lmin=0, dl=1, mmin=0, mmax=-1, dm=1, neg_m=False, m_theta_max=None):
+    ll, mm = get_lm(lmin=lmin, lmax=lmax, dl=dl, mmax=mmax, mmin=mmin)
+
+    if m_theta_max is not None:
+        ll, mm = strip_mm(ll, mm, lambda l: np.sin(m_theta_max) * l)
+
+    return ll, mm
+
+
 def get_lm_selection_index(ll1, mm1, ll2, mm2, keep_order=False):
     ''' Return the index of all modes (ll2, mm2) into (ll, mm).'''
     x = np.array([l + 1 / (m + 1.) for l, m in zip(ll1, mm1)])
