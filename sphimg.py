@@ -1790,8 +1790,8 @@ def do_inversion_gridded(config, result_dir):
                                   savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
 
             # plot power spectra
-            plot_pool.apply_async(plot_rec_power_sepctra, (ll2, mm2, alm_rec, config,
-                                  os.path.join(result_freq_dir, 'angular_power_spectra.pdf')))
+            plot_rec_power_sepctra(ll2, mm2, alm_rec, config, os.path.join(result_freq_dir,
+                                                                           'angular_power_spectra.pdf'))
 
             plot_pool.apply_async(plot_vis_vs_vis_rec, (ru, Vobs, Vrec,
                                   os.path.join(result_freq_dir, 'vis_vs_vis_rec.pdf')))
@@ -1814,6 +1814,17 @@ def do_inversion_gridded(config, result_dir):
             umax = config.l_sampling_lmax / (2 * np.pi)
 
             ml_cart_map_rec_bp = util.filter_cart_map(ml_cart_map_rec, res, umin, umax)
+
+            # if config.de_apodize:
+            #     apodize_window = np.squeeze(pyfits.getdata(config.apodize_window_file))
+            #     nx, ny = apodize_window.shape
+            #     x = (np.arange(nx) - nx / 2) * config.apodize_window_res
+            #     y = (np.arange(ny) - ny / 2) * config.apodize_window_res
+
+            #     interp_fct = RectBivariateSpline(x, y, cart_map)
+
+            #     idx = (thetas < min(nx, ny) / 2 * res)
+            #     hp_map[idx] = interp_fct.ev(sph_x[idx], sph_y[idx])
 
             save_fits_img(ml_cart_map_rec, res, float(freq) * 1e6, 1, result_freq_dir, 'cart_map_rec.fits')
 
