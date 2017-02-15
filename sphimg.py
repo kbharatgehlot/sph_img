@@ -360,21 +360,23 @@ def plot_2d_power_spectra(ll, mm, alms, freqs, config, savefile=None, vmin=1e-14
     return np.array(ps2d), ax
 
 
-def plot_rec_power_sepctra(ll, mm, alm, savefile=None):
+def plot_rec_power_sepctra(ll, mm, alm, config, savefile=None):
     if config.do_reduce_fov:
         theta_max = config.reduce_fov_theta_max
     else:
         theta_max = None
 
-    pb_corr = ps.get_sph_pb_corr('gaussian', config.fwhm, theta_max, config.nside)
+    pb_corr = psutil.get_sph_pb_corr('gaussian', config.fwhm, theta_max, config.nside)
 
     ps = psutil.get_power_spectra(alm, ll, mm) * pb_corr
+    el = np.unique(ll)
 
     fig, ax1 = plt.subplots()
-    ax1.plot(np.unique(ll), ps, label='Beam modulated power spectra')
+    ax1.plot(el, ps, label='Beam modulated power spectra')
     ax1.set_yscale('log')
     ax1.set_xlabel('l')
     ax1.set_ylabel('cl')
+    ax.set_xlim(min(el), max(el))
 
     if savefile is not None:
         fig.savefig(savefile)

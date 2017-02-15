@@ -199,6 +199,11 @@ reduce_fov_theta_max = fwhm
 reduce_fov_lmin = out_lmin
 reduce_fov_lmax = out_lmax
 
+# De-apodize
+do_de_apodize = False
+apodize_window_file = ''
+apodize_window_res = 0
+
 do_plot = True
 
 # =================================================================
