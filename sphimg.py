@@ -123,6 +123,21 @@ def plot_cart_map(cart_map, theta_max, ax=None, title=None):
         ax.set_title(title)
 
 
+def plot_cart_map_rec(cart_map, config, savefile=None):
+    fig, ax = plt.subplots()
+
+    theta_max = config.ft_inv_res * config.ft_inv_ny / 2.
+
+    plot_cart_map(cart_map_rec, theta_max, ax=ax)
+    ax.text(0.92, 0.05, 'rms residual: %.3e\nmax residual: %.3e' % (cart_map_rec.std(), cart_map_rec.max()),
+             ha='right', va='center', transform=ax.transAxes)
+
+    if savefile is not None:
+        fig.tight_layout()
+        fig.savefig(savefile)
+        plt.close(fig)
+
+
 def plot_cart_map_diff(cart_map, cart_map_rec, config, savefile=None):
     fig, (ax1, ax2, ax3) = plt.subplots(ncols=3, figsize=(12, 5))
 
@@ -370,6 +385,26 @@ def plot_rec_power_sepctra(ll, mm, alm, config, savefile=None):
 
     ps = psutil.get_power_spectra(alm, ll, mm) * pb_corr
     el = np.unique(ll)
+
+    fig, ax1 = plt.subplots()
+    ax1.plot(el, ps, label='Beam modulated power spectra')
+    ax1.set_yscale('log')
+    ax1.set_xlabel('l')
+    ax1.set_ylabel('cl')
+    ax.set_xlim(min(el), max(el))
+
+    if savefile is not None:
+        fig.savefig(savefile)
+        plt.close(fig)
+
+
+def plot_cart_rec_power_sepctra(cart_map, el, config, savefile=None):
+    el = np.unique(ll)
+    res = config.ft_inv_res
+
+    pb_corr = psutil.get_cart_pb_corr('gaussian', config.fwhm, res, cart_map.shape)
+
+    ps_rec = psutil.get_power_spectra_cart(cart_map, res, el) * pb_corr
 
     fig, ax1 = plt.subplots()
     ax1.plot(el, ps, label='Beam modulated power spectra')
@@ -1767,6 +1802,28 @@ def do_inversion_gridded(config, result_dir):
             plot_pool.close()
             plot_pool.join()
             print "Done in %.2f s" % (time.time() - t)
+
+        if config.do_ft_inv:
+            print "\nStarting FT ML inversion ..."
+            jybeam2k = (jy2k / (config.ft_inv_res ** 2))
+
+            ml_cart_map_rec = ft_ml_inversion(uu, vv, ww, Vobs, config) * jybeam2k
+
+            res = config.ft_inv_res
+            umin = config.l_sampling_lmin / (2 * np.pi)
+            umax = config.l_sampling_lmax / (2 * np.pi)
+
+            ml_cart_map_rec_bp = util.filter_cart_map(ml_cart_map_rec, res, umin, umax)
+            # ml_cart_map_rec_noise_bp = util.filter_cart_map(ml_cart_map_rec_noise, res, umin, umax)
+
+            save_fits_img(ml_cart_map_rec, res, float(freq) * 1e6, 1, result_freq_dir, 'cart_map_rec.fits')
+
+            plot_cart_rec_power_sepctra(cart_map, np.unique(ll), config,
+                                    savefile=os.path.join(result_freq_dir, 'power_spectra_ft_ml.pdf'))
+
+            plot_cart_map_rec(cart_map_bp, config, savefile=os.path.join(result_freq_dir, 'cart_map_ft_ml.pdf'))
+
+            print "Done FT ML inversion"
 
     global_ylm.close()
 
