@@ -391,7 +391,7 @@ def plot_rec_power_sepctra(ll, mm, alm, config, savefile=None):
     ax1.set_yscale('log')
     ax1.set_xlabel('l')
     ax1.set_ylabel('cl')
-    ax.set_xlim(min(el), max(el))
+    ax1.set_xlim(min(el), max(el))
 
     if savefile is not None:
         fig.savefig(savefile)
@@ -399,19 +399,18 @@ def plot_rec_power_sepctra(ll, mm, alm, config, savefile=None):
 
 
 def plot_cart_rec_power_sepctra(cart_map, el, config, savefile=None):
-    el = np.unique(ll)
     res = config.ft_inv_res
 
     pb_corr = psutil.get_cart_pb_corr('gaussian', config.fwhm, res, cart_map.shape)
 
-    ps_rec = psutil.get_power_spectra_cart(cart_map, res, el) * pb_corr
+    ps = psutil.get_power_spectra_cart(cart_map, res, el) * pb_corr
 
     fig, ax1 = plt.subplots()
     ax1.plot(el, ps, label='Beam modulated power spectra')
     ax1.set_yscale('log')
     ax1.set_xlabel('l')
     ax1.set_ylabel('cl')
-    ax.set_xlim(min(el), max(el))
+    ax1.set_xlim(min(el), max(el))
 
     if savefile is not None:
         fig.savefig(savefile)
@@ -1817,10 +1816,10 @@ def do_inversion_gridded(config, result_dir):
 
             save_fits_img(ml_cart_map_rec, res, float(freq) * 1e6, 1, result_freq_dir, 'cart_map_rec.fits')
 
-            plot_cart_rec_power_sepctra(cart_map, np.unique(ll), config,
-                                    savefile=os.path.join(result_freq_dir, 'power_spectra_ft_ml.pdf'))
+            plot_cart_rec_power_sepctra(ml_cart_map_rec, np.unique(ll), config,
+                                        savefile=os.path.join(result_freq_dir, 'power_spectra_ft_ml.pdf'))
 
-            plot_cart_map_rec(cart_map_bp, config, savefile=os.path.join(result_freq_dir, 'cart_map_ft_ml.pdf'))
+            plot_cart_map_rec(ml_cart_map_rec_bp, config, savefile=os.path.join(result_freq_dir, 'cart_map_ft_ml.pdf'))
 
             print "Done FT ML inversion"
 
