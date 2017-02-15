@@ -1740,7 +1740,7 @@ def do_inversion_gridded(config, result_dir):
 
         alm_rec, alm_rec_noise, Vrec, cov_error = alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config)
 
-        jy2k = ((1e-26 * (const.c / freq) ** 2) / (2 * const.k_B.value))
+        jy2k = ((1e-26 * (const.c.value / freq) ** 2) / (2 * const.k_B.value))
 
         # Convert back to Kelvin
         alm_rec = alm_rec * jy2k
@@ -1790,7 +1790,7 @@ def do_inversion_gridded(config, result_dir):
                                   savefile=os.path.join(result_freq_dir, 'output_sky.pdf')))
 
             # plot power spectra
-            plot_pool.apply_async(plot_rec_power_sepctra, (ll2, mm2, alm_rec,
+            plot_pool.apply_async(plot_rec_power_sepctra, (ll2, mm2, alm_rec, config,
                                   os.path.join(result_freq_dir, 'angular_power_spectra.pdf')))
 
             plot_pool.apply_async(plot_vis_vs_vis_rec, (ru, Vobs, Vrec,
@@ -1814,7 +1814,6 @@ def do_inversion_gridded(config, result_dir):
             umax = config.l_sampling_lmax / (2 * np.pi)
 
             ml_cart_map_rec_bp = util.filter_cart_map(ml_cart_map_rec, res, umin, umax)
-            # ml_cart_map_rec_noise_bp = util.filter_cart_map(ml_cart_map_rec_noise, res, umin, umax)
 
             save_fits_img(ml_cart_map_rec, res, float(freq) * 1e6, 1, result_freq_dir, 'cart_map_rec.fits')
 
