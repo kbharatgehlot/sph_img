@@ -46,7 +46,7 @@ freq_dirs = sorted(glob.glob(os.path.join(input_data_dir, 'freq_*')), key=key_fc
 pr = util.progress_report(len(freq_dirs))
 for i, freq_dir in enumerate(freq_dirs):
     pr(i)
-    ll, mm, alm_rec, alm_rec_noise, cov_error = sphimg.load_alm_rec(freq_dir, filename='alm_full.dat')
+    ll, mm, alm_rec, alm_rec_noise, cov_error = sphimg.load_alm_rec(freq_dir, filename='alm_rec_full.dat')
     ll = ll.astype(int)
     mm = mm.astype(int)
 
@@ -62,8 +62,8 @@ for i, freq_dir in enumerate(freq_dirs):
 
     sphimg.save_alm_rec(output_freq_dir, ll, mm, alm_rec, alm_rec_noise, cov_error)
 
-    shutil.copy(os.path.join(freq_dir, 'visibilities.dat'),
-                os.path.join(output_freq_dir, 'visibilities.dat'))
+    shutil.copy(os.path.join(freq_dir, 'visibilities_rec.dat'),
+                os.path.join(output_freq_dir, 'visibilities_rec.dat'))
 
 shutil.copy(os.path.join(input_data_dir, 'config.py'), os.path.join(output_data_dir, 'config.py'))
 
