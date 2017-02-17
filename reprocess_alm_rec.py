@@ -53,7 +53,7 @@ for i, freq_dir in enumerate(freq_dirs):
     # print "Post processing..."
     alm_rec, _, _ = sphimg.alm_post_processing(alm_rec, ll, mm, config_reprocess)
     alm_rec_noise, _, _ = sphimg.alm_post_processing(alm_rec_noise, ll, mm, config_reprocess)
-    cov_error, _, _ = sphimg.alm_post_processing(cov_error, ll, mm, config_reprocess, sampling_alone=True)
+    cov_error, ll, mm = sphimg.alm_post_processing(cov_error, ll, mm, config_reprocess, sampling_alone=True)
 
     output_freq_dir = os.path.join(output_data_dir, os.path.basename(freq_dir))
 
