@@ -897,6 +897,15 @@ def get_beam(thetas, beam_type, fwhm, n_sidelobe):
     return beam
 
 
+def get_cart_thetas(res, shape):
+    nx, ny = shape
+    thxval = res * np.arange(-nx / 2., nx / 2.)
+    thyval = res * np.arange(-ny / 2., ny / 2.)
+    thx, thy = np.meshgrid(thxval, thyval)
+
+    return np.sqrt(thx ** 2 + thy ** 2)
+
+
 def cart_uv(rumin, rumax, du, rnd_w=False, freqs_mhz=None):
     n = np.ceil(2 * rumax / du)
     u = du * np.arange(-n / 2, n / 2)

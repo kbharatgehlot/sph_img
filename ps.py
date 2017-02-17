@@ -199,7 +199,8 @@ def get_power_spectra_cart(cart_map, res, el):
     return ps_rec_cart
 
 
-def get_2d_power_spectra_cart(cart_cube, res, el, freqs, M=None, window=None, dx=None, half=True, method='nudft'):
+def get_2d_power_spectra_cart(cart_cube, res, el, freqs, M=None, window=None, dx=None, half=True,
+                              method='nudft'):
     nf, nx, ny = cart_cube.shape
     # cart_cube_ravel = cart_cube.reshape(nf, nx * ny)
     if method == 'nudft':
