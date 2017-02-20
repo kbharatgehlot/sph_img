@@ -1,19 +1,111 @@
 import numpy as np
-from scipy import stats
+
 import matplotlib.pyplot as plt
 
-import util
-
-from libwise import nputils, plotutils
+from scipy import stats
+from scipy.signal import get_window
 
 import healpy as hp
 
-import astropy.constants as const
-
 import astropy.units as u
+import astropy.constants as const
 from astropy.cosmology import Planck15 as cosmo
 
+import util
+from libwise import nputils, plotutils
+
 f21 = 1.4204057 * 1e9 * u.Hz
+
+
+class EorWindow(object):
+
+    def __init__(self, name, freqs, i_start, i_end, i_fg_start, i_fg_end):
+        self.name = name
+        self.idx_freq = slice(i_start, i_end)
+        self.idx_f_fg = slice(i_fg_start, i_fg_end)
+        self.freqs = freqs[self.idx_freq]
+        self.fmhz = freqs[self.idx_freq] / 1e6
+
+        # This is the number of k_par that will be computed
+        self.M = nputils.get_next_odd(len(self.fmhz))
+
+        # This is the index that goes from FG window (idx_f_fg) to EoR window (idx_freq)
+        self.idx_freg_f_fg = slice(self.idx_freq.start - self.idx_f_fg.start, self.idx_freq.stop - self.idx_f_fg.start)
+
+        self.mfreq = self.freqs[0] + (self.freqs[-1] - self.freqs[0]) / 2.
+        self.z = freq_to_z(self.mfreq * u.Hz)
+
+        self.df = (freqs[self.idx_freq][1] - freqs[self.idx_freq][0])
+        self.bw = (len(freqs[self.idx_freq]) - 1) * self.df
+
+
+class EorWindowList(object):
+
+    def __init__(self, freqs):
+        self.windows = dict()
+        self.freqs = freqs
+
+    def add(self, name, i_start, i_end, i_fg_start, i_fg_end):
+        self.windows[name] = EorWindow(name, self.freqs, i_start, i_end, i_fg_start, i_fg_end)
+
+    def get(self, name):
+        return self.windows[name]
+
+
+class PowerSpectraGenerator(object):
+
+    def __init__(self, eor_window, window_fct, beam_type, beam_fwhm, theta_fov, f_sky, ll, mm):
+        self.eor = eor_window
+        z = self.eor.z
+        self.ll = ll
+        self.mm = mm
+
+        X = cosmo.comoving_transverse_distance(self.eor.z).to(u.Mpc).value * cosmo.h
+        Y = ((const.c * (1 + z) ** 2) / (cosmo.H(z) * f21)).to(u.Mpc * u.Hz ** -1).value * cosmo.h
+        self.ps_norm = self.eor.df ** 2 / self.eor.bw * X ** 2 * Y
+
+        if window_fct is not None:
+            self.window = get_window(window_fct, len(self.eor.freqs))[:, np.newaxis]
+            self.ps_norm = self.ps_norm / (self.window ** 2).mean()
+        else:
+            self.window = None
+
+        self.pb_corr = get_sph_pb_corr(beam_type, beam_fwhm, theta_fov, 1024)
+
+        self.delay = get_delay(self.eor.fmhz, M=self.eor.M)
+        self.k_per = l_to_k(np.unique(self.ll), z)
+        self.k_par = delay_to_k(self.delay * u.us, z)
+
+        self.all_k = np.sqrt(self.k_per ** 2 + self.k_par[:, np.newaxis] ** 2)
+        self.kmin = self.all_k.min()
+
+        self.f_sky = f_sky
+
+    def get_ps2d(self, alm_cube):
+        return get_2d_power_spectra(alm_cube, self.ll, self.mm, self.eor.fmhz, M=self.eor.M,
+                                    method='nudft', window=self.window)[1] * self.pb_corr * self.ps_norm
+
+    def plot_ps2d(self, ps2d, **kargs):
+        plot_2d_power_spectra(ps2d, self.ll, self.delay, kper=self.k_per, kpar=self.k_par, **kargs)
+
+    def get_ps(self, alm_cube):
+        return get_power_spectra(alm_cube, self.ll, self.mm) * self.pb_corr
+
+    def plot_ps(self, pspec, **kargs):
+        plot_power_spectra(pspec, self.ll, self.eor.fmhz, kper=self.k_per, **kargs)
+
+    def set_kbins(self, kbins):
+        self.kbins = kbins
+        self.k_mean, _, _ = stats.binned_statistic(self.all_k.flatten(), self.all_k.flatten(),
+                                                   'mean', self.kbins)
+
+    def get_ps1d(self, ps2d):
+        return get_1d_power_spectra(ps2d * 1e6, self.k_per, self.k_par, self.ll, self.f_sky, self.kbins)[0]
+
+    def get_ps1d_err(self, ps2d):
+        ps_1d, ps_1d_err, _ = get_1d_power_spectra(ps2d * 1e6, self.k_per, self.k_par, self.ll,
+                                                   self.f_sky, self.kbins)
+        return ps_1d, ps_1d_err
 
 
 def bin_data(x, y, nbins):
@@ -232,22 +324,17 @@ def get_1d_ps_sample_count(k_par, k_per, el, bins, f_sky):
 def get_1d_power_spectra(ps2d, k_per, k_par, ll, f_sky, bins, k_par_start=0):
     k = np.sqrt(k_per ** 2 + k_par[k_par_start:, np.newaxis] ** 2)
 
-    # mbin = np.array([a + (b - a) / 2. for a, b in nputils.pairwise(bins)])
     k_mean, _, _ = stats.binned_statistic(k.flatten(), k.flatten(), 'mean', bins)
     k_norm = k_mean ** 3 / (2 * np.pi ** 2)
 
     dsp, bins, _ = stats.binned_statistic(k.flatten(), ps2d[k_par_start:].flatten(), 'mean', bins)
-
-    # el = np.unique(ll)
-    # a = np.sqrt(2 * np.pi) * nputils.gaussian_fwhm_to_sigma(np.radians(fwhm))
-    # mcount = np.repeat((2 * el + 1.)[np.newaxis, :] * a, ps2d[k_par_start:].shape[0], axis=0)
-    # bins_mcount, _, _ = stats.binned_statistic(k.flatten(), mcount.flatten(), 'sum', bins)
+    dsp = dsp * k_norm
 
     bins_mcount = get_1d_ps_sample_count(k_par, k_per, np.unique(ll), bins, f_sky)
 
-    dsp_err = np.sqrt(2 / bins_mcount) * dsp * k_norm
+    dsp_err = np.sqrt(2 / bins_mcount) * dsp
 
-    return dsp * k_norm, dsp_err, k_mean
+    return dsp, dsp_err, k_mean
 
 
 def plot_power_spectra(ps, ll, freqs, ax=None, title=None, kper=None,
@@ -343,7 +430,7 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
     dsp_v, dsp_v_err, _ = get_1d_power_spectra(ps2d_rec_v, k_per, k_par, ll, fwhm, bins, k_par_start)
 
     dsp_diff, _, _ = get_1d_power_spectra(ps2d_sub - ps2d_rec_v, k_per, k_par, ll, fwhm, bins, k_par_start)
-    
+
     # ax.errorbar(k_mean, dsp_rec, yerr=nsigma * dsp_rec_err, marker='+', label='I', c=plotutils.green)
 
     if diff_bias is not None:
