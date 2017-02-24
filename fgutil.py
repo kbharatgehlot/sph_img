@@ -48,7 +48,7 @@ def alm_pca_fit(alm, n_cmpt):
     return alm_pca_fitted
 
 
-def alm_gmca_fit(alm, n_cmpt, mints=0, do_wave_transform=False):
+def alm_gmca_fit(alm, n_cmpt, mints=0, do_wave_transform=False, do_poly_fit=0):
     from pyGMCA.bss.amca import pyAMCA as pam
     from pyredwave import RedWave
 
@@ -71,6 +71,12 @@ def alm_gmca_fit(alm, n_cmpt, mints=0, do_wave_transform=False):
     else:
         Yr = np.dot(Ar, Sr).real
         Yi = np.dot(Ai, Si).real
+
+    if do_poly_fit > 0:
+        Yr = alm_poly_fit(np.arange(X.shape[0]), Yr, np.ones(X.shape[0]), do_poly_fit,
+                          fit_fct=bernstein_fit)
+        Yi = alm_poly_fit(np.arange(X.shape[0]), Yi, np.ones(X.shape[0]), do_poly_fit,
+                          fit_fct=bernstein_fit)
 
     return Yr + 1j * Yi
 
