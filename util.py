@@ -23,7 +23,7 @@ import healpy as hp
 from scipy.interpolate import RectBivariateSpline
 
 import numexpr as ne
-from scipy import weave
+import weave
 
 from scipy import signal
 from scipy import interpolate

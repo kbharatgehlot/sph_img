@@ -29,6 +29,8 @@ import astropy.wcs as pywcs
 import util
 import ps as psutil
 
+_de_apodize_window_hp_cache = dict()
+
 
 def plot_sky(alm, ll, mm, nside, title='', savefile=None):
     dl = np.mean(np.diff(np.unique(ll)))
@@ -644,7 +646,7 @@ def simulate_sky(config):
         fg_fits = pyfits.open(config.fg_file)
         fg_slice = slice(config.fg_freq_start, config.fg_freq_stop, config.fg_freq_step)
         # Extract slices and convert them to Jy/sr
-        fg_maps_cart = fg_fits[0].data[fg_slice]
+        fg_maps_cart = config.fg_scale_factor * fg_fits[0].data[fg_slice]
         if not len(fg_maps_cart) == len(config.freqs_mhz):
             raise Exception('Number of selected slices does not match the number of frequencies')
 
@@ -782,7 +784,10 @@ def interpolate_lm_odd(alm, ll, mm, config):
         yi = alm[mm == m].imag
         y2r = idct(dct(yr), n=len(x2)) / len(x2)
         y2i = idct(dct(yi), n=len(x2)) / len(x2)
-        norm = np.sum(mm == m) / float(np.sum(mm2 == m))
+        if config.lm_interp_normalize:
+            norm = np.sum(mm == m) / float(np.sum(mm2 == m))
+        else:
+            norm = 1
         alm2[mm2 == m] = (y2r + 1j * y2i) * norm
 
     return alm2, ll2, mm2
@@ -862,9 +867,14 @@ def alm_post_processing(alm, ll, mm, config, sampling_alone=False):
             fov_cut = util.tophat_beam(thetas, 2 * config.reduce_fov_theta_max)
             window = window * fov_cut
         if config.do_de_apodize:
-            apodize_window = np.squeeze(pyfits.getdata(config.apodize_window_file))
-            inv_window_hp = 1 / util.cartmap2healpix(apodize_window, config.apodize_window_res, config.nside)
-            inv_window_hp[~np.isfinite(inv_window_hp)] = 0
+            if config.apodize_window_file not in _de_apodize_window_hp_cache:
+                apodize_window = np.squeeze(pyfits.getdata(config.apodize_window_file))
+                inv_window_hp = 1 / util.cartmap2healpix(apodize_window, config.apodize_window_res, config.nside)
+                inv_window_hp[~np.isfinite(inv_window_hp)] = 0
+                _de_apodize_window_hp_cache[config.apodize_window_file] = inv_window_hp
+            else:
+                print 'Using cached apodize window...'
+                inv_window_hp = _de_apodize_window_hp_cache[config.apodize_window_file]
             window = window * inv_window_hp
         alm = apply_window_function(ll, mm, alm, window)
     if config.do_l_smoothing and not config.out_lm_even_only and not sampling_alone:
@@ -1526,6 +1536,10 @@ def do_inversion(config, result_dir):
         Vnoise = config.noiserms * np.random.randn(len(V)) + 1j * config.noiserms * np.random.randn(len(V))
         Vobs = V + Vnoise
 
+        if config.simu_vis_only:
+            save_visibilities(result_freq_dir, ru, uphis, uthetas, V, Vobs, Vobs)
+            continue
+
         # plotting the visibilities
         # plot_pool.apply_async(plot_visibilities, (uu, vv, ww, V, os.path.join(result_freq_dir, 'vis_from_vlm.pdf')))
 
@@ -1840,8 +1854,8 @@ def do_inversion_gridded(config, result_dir):
 
     np.save(os.path.join(result_dir, 'freqs'), freqs)
 
-    if len(alms_rec) > 1:
-        plot_2d_power_spectra(ll2, mm2, alms_rec, freqs, config, os.path.join(result_dir, 'power_spectra_2d.pdf'),
-                              vmin=1e-3, vmax=1e-1)
+#    if len(alms_rec) > 1:
+#        plot_2d_power_spectra(ll2, mm2, alms_rec, freqs, config, os.path.join(result_dir, 'power_spectra_2d.pdf'),
+#                              vmin=1e-3, vmax=1e-1)
 
     print '\nAll done!'
