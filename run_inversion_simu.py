@@ -309,7 +309,7 @@ def main():
     config = sphimg.get_config(result_dir)
 
     profileutils.start()
-    sphimg.do_inversion(config, result_dir)
+    do_inversion(config, result_dir)
     profileutils.done(stdout=False, file=os.path.join(result_dir, 'stats.dmp'))
 
 
