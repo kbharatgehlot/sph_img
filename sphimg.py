@@ -1342,7 +1342,10 @@ def read_gridded_config(weighting_file, config):
 
     uu, vv = np.meshgrid(u, v)
 
-    weights = f_w[0].data[0][0]
+    if f_w[0].data.shape == 4:
+        weights = f_w[0].data[0][0]
+    elif f_w[0].data.shape == 3:
+        weights = f_w[0].data[0]
 
     idx_u, idx_v = np.nonzero(weights)
 
