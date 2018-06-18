@@ -1344,7 +1344,7 @@ def read_gridded_config(weighting_file, config):
 
     if f_w[0].data.shape == 4:
         weights = f_w[0].data[0][0]
-    elif f_w[0].data.shape == 3:
+    else:
         weights = f_w[0].data[0]
 
     idx_u, idx_v = np.nonzero(weights)
