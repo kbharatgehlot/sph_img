@@ -3,7 +3,9 @@
 import os
 import sys
 import glob
+import time
 import shutil
+import multiprocessing as mp
 
 import numpy as np
 
@@ -43,9 +45,7 @@ print 'Saving reprocessed data in %s' % output_data_dir
 key_fct = lambda a: int(a.split('_')[-1])
 freq_dirs = sorted(glob.glob(os.path.join(input_data_dir, 'freq_*')), key=key_fct)
 
-pr = util.progress_report(len(freq_dirs))
-for i, freq_dir in enumerate(freq_dirs):
-    pr(i)
+def process_freq_dir(freq_dir):
     ll, mm, alm_rec, alm_rec_noise, cov_error = sphimg.load_alm_rec(freq_dir, filename='alm_rec_full.dat')
     ll = ll.astype(int)
     mm = mm.astype(int)
@@ -64,6 +64,16 @@ for i, freq_dir in enumerate(freq_dirs):
 
     shutil.copy(os.path.join(freq_dir, 'visibilities_rec.dat'),
                 os.path.join(output_freq_dir, 'visibilities_rec.dat'))
+
+mp_pool = mp.Pool(processes=util.NUM_POOL)
+res = mp_pool.map_async(process_freq_dir, freq_dirs)
+
+while not res.ready:
+    print "%s / %s processed" % (res._number_left, len(freq_dirs))
+    time.sleep(10)
+
+mp_pool.close()
+mp_pool.join()
 
 shutil.copy(os.path.join(input_data_dir, 'config.py'), os.path.join(output_data_dir, 'config.py'))
 
