@@ -41,7 +41,7 @@ inp_lm_even_only = False
 # =================================================================
 
 synfast_rnd_seed = 125
-vis_rnd_seed = None
+vis_rnd_seed = 0
 
 # The angular power spectrum profile
 cl = 5 * (np.arange(lmax + 1) + 1) ** -2.

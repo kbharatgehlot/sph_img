@@ -19,23 +19,35 @@ f21 = 1.4204057 * 1e9 * u.Hz
 
 class EorWindow(object):
 
-    def __init__(self, name, freqs, i_start, i_end, i_fg_start, i_fg_end):
+    def __init__(self, name, freqs, i_start=None, i_end=None, i_fg_start=None, i_fg_end=None):
         self.name = name
         self.idx_freq = slice(i_start, i_end)
         self.idx_f_fg = slice(i_fg_start, i_fg_end)
         self.freqs = freqs[self.idx_freq]
-        self.fmhz = freqs[self.idx_freq] / 1e6
+        self.fmhz = self.freqs / 1e6
+        self.freqs_fg = freqs[self.idx_f_fg]
+        self.fmhz_fg = self.freqs_fg / 1e6
 
         # This is the number of k_par that will be computed
         self.M = nputils.get_next_odd(len(self.fmhz))
 
         # This is the index that goes from FG window (idx_f_fg) to EoR window (idx_freq)
-        self.idx_freg_f_fg = slice(self.idx_freq.start - self.idx_f_fg.start, self.idx_freq.stop - self.idx_f_fg.start)
+        if i_start is None or i_fg_start is None:
+            idx_freg_f_fg_start = None
+        else:
+            idx_freg_f_fg_start = self.idx_freq.start - self.idx_f_fg.start
+        if i_end is None or i_fg_end is None:
+            idx_freg_f_fg_stop = None
+        else:
+            idx_freg_f_fg_stop = self.idx_freq.stop - self.idx_f_fg.stop
+        if self.idx_freq.stop is None:
+            self.idx_freg_f_fg_stop = None
+        self.idx_freg_f_fg = slice(idx_freg_f_fg_start, idx_freg_f_fg_stop)
 
         self.mfreq = self.freqs[0] + (self.freqs[-1] - self.freqs[0]) / 2.
         self.z = freq_to_z(self.mfreq * u.Hz)
 
-        self.df = (freqs[self.idx_freq][1] - freqs[self.idx_freq][0])
+        self.df = stats.mode(np.diff(freqs[self.idx_freq])).mode[0]
         self.bw = (len(freqs[self.idx_freq]) - 1) * self.df
 
 
@@ -48,17 +60,27 @@ class EorWindowList(object):
     def add(self, name, i_start, i_end, i_fg_start, i_fg_end):
         self.windows[name] = EorWindow(name, self.freqs, i_start, i_end, i_fg_start, i_fg_end)
 
+    def add_freq(self, name, freq_start, freq_end, freq_fg_start, freq_fg_end):
+        i_start = np.nonzero(self.freqs >= freq_start)[0][0]
+        i_end = np.nonzero(self.freqs >= freq_end)[0][0]
+        i_fg_start = np.nonzero(self.freqs >= freq_fg_start)[0][0]
+        i_fg_end = np.nonzero(self.freqs >= freq_fg_end)[0][0]
+        self.windows[name] = EorWindow(name, self.freqs, i_start, i_end, i_fg_start, i_fg_end)
+
     def get(self, name):
         return self.windows[name]
 
 
 class PowerSpectraGenerator(object):
 
-    def __init__(self, eor_window, window_fct, beam_type, beam_fwhm, theta_fov, f_sky, ll, mm):
+    def __init__(self, eor_window, window_fct, beam_type, beam_fwhm, theta_fov,
+                 f_sky, ll, mm, ft_method='nudft'):
         self.eor = eor_window
         z = self.eor.z
         self.ll = ll
+        self.el = np.unique(self.ll)
         self.mm = mm
+        self.ft_method = ft_method
 
         X = cosmo.comoving_transverse_distance(self.eor.z).to(u.Mpc).value * cosmo.h
         Y = ((const.c * (1 + z) ** 2) / (cosmo.H(z) * f21)).to(u.Mpc * u.Hz ** -1).value * cosmo.h
@@ -73,7 +95,7 @@ class PowerSpectraGenerator(object):
         self.pb_corr = get_sph_pb_corr(beam_type, beam_fwhm, theta_fov, 1024)
 
         self.delay = get_delay(self.eor.fmhz, M=self.eor.M)
-        self.k_per = l_to_k(np.unique(self.ll), z)
+        self.k_per = l_to_k(self.el, z)
         self.k_par = delay_to_k(self.delay * u.us, z)
 
         self.all_k = np.sqrt(self.k_per ** 2 + self.k_par[:, np.newaxis] ** 2)
@@ -82,8 +104,17 @@ class PowerSpectraGenerator(object):
         self.f_sky = f_sky
 
     def get_ps2d(self, alm_cube):
-        return get_2d_power_spectra(alm_cube, self.ll, self.mm, self.eor.fmhz, M=self.eor.M,
-                                    method='nudft', window=self.window)[1] * self.pb_corr * self.ps_norm
+        return get_2d_power_spectra(alm_cube, self.ll, self.mm, self.eor.fmhz,
+                                    M=self.eor.M, method=self.ft_method,
+                                    window=self.window)[1] * self.pb_corr * self.ps_norm
+
+    def get_cross_ps2d(self, alm_cube1, alm_cube2):
+        return get_2d_cross_power_spectra(alm_cube1, alm_cube2, self.ll, self.mm, self.eor.fmhz,
+                                          M=self.eor.M, method=self.ft_method,
+                                          window=self.window)[1] * self.pb_corr * self.ps_norm
+
+    def get_co_ps2d(self, alm1, alm2):
+        return self.get_ps2d(alm1 + alm2) - (self.get_ps2d(alm1) + self.get_ps2d(alm2))
 
     def plot_ps2d(self, ps2d, **kargs):
         plot_2d_power_spectra(ps2d, self.ll, self.delay, kper=self.k_per, kpar=self.k_par, **kargs)
@@ -126,6 +157,57 @@ def ax_plot_binned(ax, x, y, nbins, **kargs):
     ax.errorbar(bins, m, s / np.sqrt(nbins), **kargs)
 
 
+def robust_std(inputData, Zero=False, axis=None, dtype=None):
+    """
+    Robust estimator of the standard deviation of a data set.
+
+    Based on the robust_sigma function from the AstroIDL User's Library.
+    """
+
+    __epsilon = 1.0e-20
+
+    if axis is not None:
+        fnc = lambda x: robust_std(x, dtype=dtype)
+        sigma = np.apply_along_axis(fnc, axis, inputData)
+    else:
+        data = inputData.ravel()
+        if type(data).__name__ == "MaskedArray":
+            data = data.compressed()
+        if dtype is not None:
+            data = data.astype(dtype)
+
+        if Zero:
+            data0 = 0.0
+        else:
+            data0 = np.median(data)
+        maxAbsDev = np.median(np.abs(data - data0)) / 0.6745
+        if maxAbsDev < __epsilon:
+            maxAbsDev = (np.abs(data - data0)).mean() / 0.8000
+        if maxAbsDev < __epsilon:
+            sigma = 0.0
+            return sigma
+
+        u = (data - data0) / 6.0 / maxAbsDev
+        u2 = u**2.0
+        good = np.where(u2 <= 1.0)
+        good = good[0]
+        if len(good) < 3:
+            print "WARNING:  Distribution is too strange to compute standard deviation"
+            sigma = -1.0
+            return sigma
+
+        numerator = ((data[good] - data0)**2.0 * (1.0 - u2[good])**2.0).sum()
+        nElements = (data.ravel()).shape[0]
+        denominator = ((1.0 - u2[good]) * (1.0 - 5.0 * u2[good])).sum()
+        sigma = nElements * numerator / (denominator * (denominator - 1.0))
+        if sigma > 0:
+            sigma = np.sqrt(sigma)
+        else:
+            sigma = 0.0
+
+    return sigma
+
+
 def fill_gaps(alm_cube, gaps, fill_with=np.nan):
     alm_filled = []
     for i, alm in enumerate(alm_cube):
@@ -137,8 +219,20 @@ def fill_gaps(alm_cube, gaps, fill_with=np.nan):
 
 
 def get_gaps(freqs):
-    df = freqs[1] - freqs[0]
+    df = stats.mode(np.diff(freqs)).mode[0]
     return np.array(np.round(np.diff(freqs) / df) - 1).astype(int)
+
+
+def get_freqs_gaps(freqs):
+    df = stats.mode(np.diff(freqs)).mode[0]
+    gaps = np.array(np.round(np.diff(freqs) / df) - 1).astype(int)
+    freqs_gaps = []
+    for i, freq in enumerate(freqs):
+        if i < len(gaps) and gaps[i] > 0:
+            freqs_gaps.extend(freq + df * (np.arange(gaps[i]) + 1))
+            # freqs_gaps.extend([np.ones_like(alm_cube[0]) * fill_with] * gaps[i])
+
+    return np.array(freqs_gaps)
 
 
 def freq_to_index(freqs, start=1):
@@ -201,7 +295,7 @@ def nudft(x, y, M=None, w=None, dx=None):
         M = len(x)
 
     if dx is None:
-        dx = x[1] - x[0]
+        dx = stats.mode(np.diff(x)).mode[0]
 
     if w is not None:
         y = y * w  # [:, np.newaxis]
@@ -214,7 +308,7 @@ def nudft(x, y, M=None, w=None, dx=None):
     return k, np.tensordot(y, X.T, axes=[0, 1]).T
 
 
-def lssa(x, y, M, w=None, dx=None):
+def lssa(x, y, M, w=None, weights=None, dx=None):
     if dx is None:
         dx = x[1] - x[0]
 
@@ -223,12 +317,13 @@ def lssa(x, y, M, w=None, dx=None):
     if w is not None:
         y *= w  # [:, np.newaxis]
 
-    # Version with noise covariance matrix (does not really improve stuff):
-    # C_Dinv = np.diag(1 / noiserms ** 2)
-    # Y = np.dot(np.linalg.pinv(np.dot(np.dot(A.T, C_Dinv), A)), np.dot(A.T, C_Dinv))
-
     A = np.exp(2. * np.pi * 1j * k * x[:, np.newaxis]) / len(x)
-    Y = np.dot(np.linalg.pinv(np.dot(A.T, A)), A.T)
+
+    if weights is None:
+        Y = np.dot(np.linalg.pinv(np.dot(A.T, A)), A.T)
+    else:
+        C = np.diagflat(weights)
+        Y = np.dot(np.linalg.pinv(np.dot(np.dot(A.T, C), A)), np.dot(A.T, C))
 
     return k, np.tensordot(y.T, Y.T, axes=[1, 0]).T
 
@@ -239,6 +334,17 @@ def get_power_spectra(alm, ll, mm):
     if dim == 1:
         alm = alm[np.newaxis, :]
     ps = np.array([np.sum(np.abs(alm[:, ll == l]) ** 2, axis=1) / (l + 1) for l in l_uniq]).T
+    if dim == 1:
+        ps = ps[0]
+    return ps
+
+
+def get_cross_power_spectra(alm1, alm2, ll, mm):
+    l_uniq = np.unique(ll)
+    dim = alm1.ndim
+    if dim == 1:
+        alm1 = alm1[np.newaxis, :]
+    ps = np.array([np.sum(np.abs(np.conj(alm1[:, ll == l]) * alm2[:, ll == l]), axis=1) / (l + 1) for l in l_uniq]).T
     if dim == 1:
         ps = ps[0]
     return ps
@@ -271,7 +377,32 @@ def get_2d_power_spectra(alm, ll, mm, freqs, M=None, window=None, dx=None, half=
     if half:
         M = len(delay)
         delay = delay[M / 2 + 1:]
-        ps2d = 0.5 * (ps2d[M / 2 + 1:] + ps2d[:M / 2][::-1])
+        if util.is_odd(M):
+            ps2d = 0.5 * (ps2d[M / 2 + 1:] + ps2d[:M / 2][::-1])
+        else:
+            ps2d = 0.5 * (ps2d[M / 2 + 1:] + ps2d[1:M / 2][::-1])
+
+    return delay, ps2d
+
+
+def get_2d_cross_power_spectra(alm1, alm2, ll, mm, freqs, M=None, window=None, dx=None,
+                               half=True, method='nudft'):
+    if method == 'nudft':
+        delay, nudft_cube1 = nudft(freqs, rmean(alm1), M=M, w=window, dx=dx)
+        delay, nudft_cube2 = nudft(freqs, rmean(alm2), M=M, w=window, dx=dx)
+    else:
+        delay, nudft_cube1 = lssa(freqs, rmean(alm1), M=M, w=window, dx=dx)
+        delay, nudft_cube2 = lssa(freqs, rmean(alm2), M=M, w=window, dx=dx)
+
+    ps2d = get_cross_power_spectra(nudft_cube1, nudft_cube2, ll, mm)
+
+    if half:
+        M = len(delay)
+        delay = delay[M / 2 + 1:]
+        if util.is_odd(M):
+            ps2d = 0.5 * (ps2d[M / 2 + 1:] + ps2d[:M / 2][::-1])
+        else:
+            ps2d = 0.5 * (ps2d[M / 2 + 1:] + ps2d[1:M / 2][::-1])
 
     return delay, ps2d
 
@@ -373,7 +504,8 @@ def plot_power_spectra(ps, ll, freqs, ax=None, title=None, kper=None,
 
 
 def plot_2d_power_spectra(ps, ll, delay, ax=None, title=None, kper=None, kpar=None,
-                          kper_only=True, log_norm=True, **kargs):
+                          kper_only=True, log_norm=True, colorbar=True,
+                          log_axis=False, **kargs):
     if ax is None:
         fig, ax = plt.subplots()
     pad = '5%'
@@ -400,11 +532,23 @@ def plot_2d_power_spectra(ps, ll, delay, ax=None, title=None, kper=None, kpar=No
     else:
         norm = None
 
-    cbs = plotutils.ColorbarSetting(plotutils.ColorbarOutterPosition(pad=pad))
+    if colorbar:
+        cbs = plotutils.ColorbarSetting(plotutils.ColorbarOutterPosition(pad=pad))
 
-    im_mappable = ax.imshow(ps, aspect='auto', norm=norm,
-                            extent=extent, **kargs)
-    cbs.add_colorbar(im_mappable, ax)
+    if log_axis:
+        x = np.log10(kper)
+        y = np.log10(kpar)
+        xx, yy = np.meshgrid(x, y)
+        im_mappable = ax.pcolor(xx, yy, ps, norm=norm, **kargs)
+        ax.set_xlim(x.min(), x.max())
+        ax.set_ylim(y.min(), y.max())
+        ax.set_xticklabels(['%.2f' % k for k in 10 ** ax.get_xticks()])
+        ax.set_yticklabels(['%.2f' % k for k in 10 ** ax.get_yticks()])
+    else:
+        im_mappable = ax.imshow(ps, aspect='auto', norm=norm, extent=extent, **kargs)
+
+    if colorbar:
+        cbs.add_colorbar(im_mappable, ax)
 
     if not kper_only:
         # Hack to fix the second axes (http://stackoverflow.com/questions/34979781)
@@ -431,7 +575,7 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
 
     dsp_diff, _, _ = get_1d_power_spectra(ps2d_sub - ps2d_rec_v, k_per, k_par, ll, fwhm, bins, k_par_start)
 
-    # ax.errorbar(k_mean, dsp_rec, yerr=nsigma * dsp_rec_err, marker='+', label='I', c=plotutils.green)
+    ax.errorbar(k_mean, dsp_rec, yerr=nsigma * dsp_rec_err, marker='+', label='I', c=plotutils.green)
 
     if diff_bias is not None:
         dsp_diff += diff_bias
@@ -449,7 +593,7 @@ def plot_1d_power_spectra(ps2d_rec, ps2d_rec_v, ps2d_sub, k_par, k_per, bins,
     ax.set_xlabel('$k\,[\mathrm{h\,cMpc^{-1}}]$')
 
     ax.set_xlim(bins.min(), bins.max())
-    # ax.legend(loc=4)
+    ax.legend(loc=2)
 
     if title is not None:
         ax.set_title(title)

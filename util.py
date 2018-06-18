@@ -14,7 +14,7 @@ import numpy as np
 from astropy import constants as const
 import astropy.wcs as pywcs
 import astropy.io.fits as pf
-from scipy.special import sph_jn
+from scipy.special import spherical_jn as sph_jn
 
 from libwise import nputils, plotutils
 
@@ -23,7 +23,11 @@ import healpy as hp
 from scipy.interpolate import RectBivariateSpline
 
 import numexpr as ne
-from scipy import weave
+
+try:
+    from scipy import weave
+except ImportError:
+    import weave
 
 from scipy import signal
 from scipy import interpolate
@@ -93,6 +97,42 @@ def write_gridded_visibilities(dirname, basename, V, umin, umax, du, freq, dfreq
     write_fits_gridded_visibilities(g_imag, data.imag, du, freq, dfreq)
 
     return data
+
+
+def read_gridded_visbilities(file_real, file_imag):
+    f_g_real = pf.open(file_real)
+    f_g_imag = pf.open(file_imag)
+    du = f_g_real[0].header['CDELT1']
+    dv = f_g_real[0].header['CDELT2']
+    nu = f_g_real[0].header['NAXIS1']
+    nv = f_g_real[0].header['NAXIS2']
+
+    u = du * np.arange(-nu / 2, nu / 2)
+    v = dv * np.arange(-nv / 2, nv / 2)
+
+    g_uu, g_vv = np.meshgrid(u, v)
+
+    vis = f_g_real[0].data.squeeze() + 1j * f_g_imag[0].data.squeeze()
+
+    return vis, g_uu, g_vv
+
+
+def filter_gridded_visbilities(vis, uu, vv, umin, umax):
+    idx_u, idx_v = np.nonzero(vis)
+
+    vis = vis[idx_u, idx_v].flatten()
+    uu = uu[idx_u, idx_v].flatten()
+    vv = vv[idx_u, idx_v].flatten()
+
+    ru = np.sqrt(uu ** 2 + vv ** 2)
+
+    idx = (ru >= umin) & (ru <= umax)
+
+    vis = vis[idx]
+    uu = uu[idx]
+    vv = vv[idx]
+
+    return vis, uu, vv
 
 
 class Alm2VisTransMatrix(object):
@@ -323,6 +363,7 @@ class AbstractCachedMatrix(object):
                 self.build_matrix(array)
 
             os.rename(cache_file_temp, cache_file)
+            time.sleep(1)
 
             print 'Done in %.2f s' % (time.time() - start)
         else:
@@ -691,7 +732,8 @@ def sparse_to_dense_weave(sparse, idx_x, idx_y):
 def get_jn_fast_weave(ll, ru, fct=sparse_to_dense_weave_openmp):
     uniq, idx = np.unique(ll, return_inverse=True)
     uniq_r, idx_r = np.unique(ru, return_inverse=True)
-    sparse = np.array([sph_jn(max(uniq), 2 * np.pi * r)[0][uniq] for r in uniq_r]).T
+    # print sph_jn(max(uniq), 2 * np.pi * uniq_r[0])
+    sparse = sph_jn(uniq[None, :], 2 * np.pi * uniq_r[:, None]).T
 
     return fct(sparse, idx, idx_r)
 
@@ -895,6 +937,16 @@ def get_beam(thetas, beam_type, fwhm, n_sidelobe):
         return None
 
     return beam
+
+
+def get_beam_cart(res, img_shape, beam_type, fwhm, n_sidelobe):
+    nx, ny = img_shape
+
+    thxval = res * np.arange(-nx / 2., nx / 2.)
+    thyval = res * np.arange(-ny / 2., ny / 2.)
+    thx, thy = np.meshgrid(thxval, thyval)
+
+    return get_beam(np.sqrt(thx ** 2 + thy ** 2), beam_type, fwhm, n_sidelobe)
 
 
 def get_cart_thetas(res, shape):
@@ -1289,21 +1341,22 @@ def test_uv_cov():
     # plt.show()
 
     # freqs = np.arange(110, 130, 5)
-    freqs = [145.]
-    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 45, 255, 200, min_max_is_baselines=False)
-    plt.figure()
-    colors = plotutils.ColorSelector()
-    uphis = []
-    uthetas = []
-    for u, v, w in zip(uu, vv, ww):
-        ru, uphi, utheta = cart2sph(u, v, w)
-        # print ru
-        # print np.unique(uphi), np.unique(utheta)
-        print len(ru), min(ru), max(ru), len(np.unique(np.round(ru, decimals=2))), \
-            len(np.unique(np.round(uphi, decimals=12))), len(np.unique(np.round(utheta, decimals=12)))
-        uphis.append(np.round(uphi, decimals=12))
-        uthetas.append(np.round(utheta, decimals=12))
-        plt.scatter(u, v, c=colors.get(), marker='+', s=5)
+    freqs = [140.]
+    uu, vv, ww = lofar_uv(freqs, 90, -6, 6, 50, 250, 60, min_max_is_baselines=False)
+    print uu.shape
+    # plt.figure()
+    # colors = plotutils.ColorSelector()
+    # uphis = []
+    # uthetas = []
+    # for u, v, w in zip(uu, vv, ww):
+    #     ru, uphi, utheta = cart2sph(u, v, w)
+    #     # print ru
+    #     # print np.unique(uphi), np.unique(utheta)
+    #     print len(ru), min(ru), max(ru), len(np.unique(np.round(ru, decimals=2))), \
+    #         len(np.unique(np.round(uphi, decimals=12))), len(np.unique(np.round(utheta, decimals=12)))
+    #     uphis.append(np.round(uphi, decimals=12))
+    #     uthetas.append(np.round(utheta, decimals=12))
+    #     plt.scatter(u, v, c=colors.get(), marker='+', s=5)
         # plt.scatter(utheta, uphi, c=colors.get(), marker='+', )
     # print np.allclose(np.unique(uphis[0]), np.unique(uphis[1]))
     # print np.allclose(np.unique(uthetas[0]), np.unique(uthetas[1]))

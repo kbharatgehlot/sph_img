@@ -44,7 +44,7 @@ key_fct = lambda a: int(a.split('_')[-1])
 freq_dirs = sorted(glob.glob(os.path.join(input_data_dir, 'freq_*')), key=key_fct)
 
 pr = util.progress_report(len(freq_dirs))
-for i, freq_dir in enumerate(freq_dirs):
+for i, freq_dir in enumerate(m):
     pr(i)
     ll, mm, alm, alm_fg, alm_eor, alm_rec, alm_rec_noise, cov_error = sphimg.load_alm(freq_dir, filename='alm_full.dat')
     ll = ll.astype(int)

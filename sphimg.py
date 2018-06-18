@@ -644,7 +644,7 @@ def simulate_sky(config):
         fg_fits = pyfits.open(config.fg_file)
         fg_slice = slice(config.fg_freq_start, config.fg_freq_stop, config.fg_freq_step)
         # Extract slices and convert them to Jy/sr
-        fg_maps_cart = fg_fits[0].data[fg_slice]
+        fg_maps_cart = config.fg_scale_factor * fg_fits[0].data[fg_slice]
         if not len(fg_maps_cart) == len(config.freqs_mhz):
             raise Exception('Number of selected slices does not match the number of frequencies')
 
@@ -782,7 +782,10 @@ def interpolate_lm_odd(alm, ll, mm, config):
         yi = alm[mm == m].imag
         y2r = idct(dct(yr), n=len(x2)) / len(x2)
         y2i = idct(dct(yi), n=len(x2)) / len(x2)
-        norm = np.sum(mm == m) / float(np.sum(mm2 == m))
+        if config.lm_interp_normalize:
+            norm = np.sum(mm == m) / float(np.sum(mm2 == m))
+        else:
+            norm = 1
         alm2[mm2 == m] = (y2r + 1j * y2i) * norm
 
     return alm2, ll2, mm2
