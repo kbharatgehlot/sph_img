@@ -215,3 +215,5 @@ n_decimal_tol = 12
 cache_dir = 'cache'
 
 keep_in_mem = True
+
+simu_vis_only = False
