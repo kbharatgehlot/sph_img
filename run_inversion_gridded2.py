@@ -13,6 +13,7 @@ import sphimg
 import util
 
 import numpy as np
+import pandas as pd
 
 from astropy import constants as const
 from astropy.io import fits as pyfits
@@ -25,6 +26,25 @@ Usage: run_inversion.py name
 Additional options:
 --config, -c: configuration file to be used instead of the default config.py
 '''
+
+
+def save_data(filename, data, columns_name):
+    df = pd.DataFrame(dict(zip(columns_name, data)))
+    df.to_csv(filename)
+
+
+def save_alm_rec(dirname, ll, mm, freq, alm_rec, alm_rec_noise, cov_error):
+    columns = ['ll', 'mm', 'freq', 'alm_rec', 'alm_rec_noise', 'cov_error']
+    filename = os.path.join(dirname, 'alm_rec.dat')
+    print "Saving alm result to:", filename
+    save_data(filename, [ll, mm, freq, alm_rec, alm_rec_noise, cov_error], columns)
+
+
+def save_visibilities_rec(dirname, ru, uphis, uthetas, Vobs, Vrec):
+    columns = ['ru', 'uphis', 'uthetas', 'Vobs', 'Vrec']
+    filename = os.path.join(dirname, 'visibilities_rec.dat')
+    print "Saving vis result to:", filename
+    save_data(filename, [ru, uphis, uthetas, Vobs, Vrec], columns)
 
 
 def read_gridded_visbilities(filename, config):
@@ -158,8 +178,8 @@ def do_inversion_gridded(config, result_dir):
 
         alms_rec.append(alm_rec)
 
-        sphimg.save_alm_rec(result_freq_dir, ll2, mm2, freq, alm_rec, alm_rec_noise, cov_error)
-        sphimg.save_visibilities_rec(result_freq_dir, ru, uphis, uthetas, Vobs, Vrec)
+        save_alm_rec(result_freq_dir, ll2, mm2, freq, alm_rec, alm_rec_noise, cov_error)
+        save_visibilities_rec(result_freq_dir, ru, uphis, uthetas, Vobs, Vrec)
 
         print "Plotting result"
         t = time.time()
