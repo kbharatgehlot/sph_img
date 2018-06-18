@@ -200,7 +200,7 @@ def do_inversion_gridded(config, result_dir):
 
         # plot power spectra
 
-        sphimg.plot_rec_power_sepctra(ll2, mm2, alm_rec, lamb, os.path.join(
+        sphimg.plot_rec_power_sepctra(ll2, mm2, alm_rec, config, os.path.join(
             result_freq_dir, 'angular_power_spectra.pdf'))
 
         sphimg.plot_vis_vs_vis_rec(ru, Vobs, Vrec, os.path.join(result_freq_dir, 'vis_vs_vis_rec.pdf'))
