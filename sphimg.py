@@ -741,6 +741,17 @@ def simulate_uv_cov(config):
         uthetas = np.array([uthetas])
         config.noiserms = config.noiserms / np.sqrt(weights)
         config.weights = weights
+    elif config.uv_type == 'npy':
+        print 'Loading uv coverage from %s' % config.npy_uv_file
+        data = np.load(config.npy_uv_file)
+        rb, uphis, uthetas = util.cart2sph(data['uu'], data['vv'], data['ww'])
+        ru = rb / lambs[0]
+        idx = (ru >= config.uv_rumin) & (ru <= config.uv_rumax)
+        print 'Original %s visbilities from %s to %s' % (len(ru), ru.min(), ru.max())
+        print 'Select %s visbilities from %s to %s' % (len(ru[idx]), ru[idx].min(), ru[idx].max())
+        rb = np.array([ru[idx]])
+        uphis = np.array([uphis[idx]])
+        uthetas = np.array([uthetas[idx]])
     else:
         print 'Configuration value uv_type invalid'
         sh.usage(True)
@@ -947,58 +958,61 @@ def alm_ml_inversion(ll, mm, Vobs, uphis, uthetas, i, trm, config):
     rhs_i = np.dot(X_i_dot_C_Dinv, Vobs.imag)
     print "Done in %.2f s" % (time.time() - t)
 
-    print "Building covariance matrix ...",
-    sys.stdout.flush()
-    t = time.time()
+    if config.compute_cov_err:
+        print "Building covariance matrix ...",
+        sys.stdout.flush()
+        t = time.time()
 
-    if config.reg_lambda > 0:
-        lhs_r_err_1 = np.linalg.inv(lhs_r)
-        lhs_r_err_2 = np.dot(X_r_dot_C_Dinv, X_r)
-        cov_error_r_tild = np.sqrt(np.diag(np.dot(np.dot(lhs_r_err_2, lhs_r_err_1), lhs_r_err_1)))
+        if config.reg_lambda > 0:
+            lhs_r_err_1 = np.linalg.inv(lhs_r)
+            lhs_r_err_2 = np.dot(X_r_dot_C_Dinv, X_r)
+            cov_error_r_tild = np.sqrt(np.diag(np.dot(np.dot(lhs_r_err_2, lhs_r_err_1), lhs_r_err_1)))
 
-        lhs_i_err_1 = np.linalg.inv(lhs_i)
-        lhs_i_err_2 = np.dot(X_i_dot_C_Dinv, X_i)
-        cov_error_i_tild = np.sqrt(np.diag(np.dot(np.dot(lhs_i_err_2, lhs_i_err_1), lhs_i_err_1)))
+            lhs_i_err_1 = np.linalg.inv(lhs_i)
+            lhs_i_err_2 = np.dot(X_i_dot_C_Dinv, X_i)
+            cov_error_i_tild = np.sqrt(np.diag(np.dot(np.dot(lhs_i_err_2, lhs_i_err_1), lhs_i_err_1)))
+        else:
+            cov_error_r_tild = np.sqrt(np.diag(np.linalg.inv(lhs_r)))
+            cov_error_i_tild = np.sqrt(np.diag(np.linalg.inv(lhs_i)))
+
+        if config.use_dct:
+            cov_error_r = []
+            j = 0
+            for sel_block in [trm.m0_l_even, trm.lm_even, trm.lm_even]:
+                for m in np.unique(mm[sel_block]):
+                    n = len(ll[sel_block][mm[sel_block] == m])
+                    nk = int(np.ceil(n / dl))
+                    dct_C_Dinv = np.diag(np.repeat([1 / cov_error_r_tild[j:j + nk] ** 2], np.ceil(n / float(nk)))[:n])
+                    dct_C_Dinv *= (n / float(nk)) ** 2
+                    dct_mat = util.get_dct2(n, n)
+                    dct_lhs = np.dot(dct_C_Dinv.T.dot(dct_mat.T).T, dct_mat.T)
+                    cov_error_r.extend(np.sqrt(np.linalg.inv(dct_lhs).diagonal()))
+                    j += nk
+
+            cov_error_i = []
+            j = 0
+            for sel_block in [trm.m0_l_odd, trm.lm_odd, trm.lm_odd]:
+                for m in np.unique(mm[sel_block]):
+                    n = len(ll[sel_block][mm[sel_block] == m])
+                    nk = int(np.ceil(n / dl))
+                    dct_C_Dinv = np.diag(np.repeat([1 / cov_error_i_tild[j:j + nk] ** 2], np.ceil(n / float(nk)))[:n])
+                    dct_C_Dinv *= (n / float(nk)) ** 2
+                    dct_mat = util.get_dct2(n, n)
+                    dct_lhs = np.dot(dct_C_Dinv.T.dot(dct_mat.T).T, dct_mat.T)
+                    cov_error_i.extend(np.sqrt(np.linalg.inv(dct_lhs).diagonal()))
+                    j += nk
+
+            cov_error_r = np.array(cov_error_r)
+            cov_error_i = np.array(cov_error_i)
+        else:
+            cov_error_r = cov_error_r_tild
+            cov_error_i = cov_error_i_tild
+
+        cov_error = np.abs(trm.recombine(cov_error_r, cov_error_i))
+
+        print "Done in %.2f s" % (time.time() - t)
     else:
-        cov_error_r_tild = np.sqrt(np.diag(np.linalg.inv(lhs_r)))
-        cov_error_i_tild = np.sqrt(np.diag(np.linalg.inv(lhs_i)))
-
-    if config.use_dct:
-        cov_error_r = []
-        j = 0
-        for sel_block in [trm.m0_l_even, trm.lm_even, trm.lm_even]:
-            for m in np.unique(mm[sel_block]):
-                n = len(ll[sel_block][mm[sel_block] == m])
-                nk = int(np.ceil(n / dl))
-                dct_C_Dinv = np.diag(np.repeat([1 / cov_error_r_tild[j:j + nk] ** 2], np.ceil(n / float(nk)))[:n])
-                dct_C_Dinv *= (n / float(nk)) ** 2
-                dct_mat = util.get_dct2(n, n)
-                dct_lhs = np.dot(dct_C_Dinv.T.dot(dct_mat.T).T, dct_mat.T)
-                cov_error_r.extend(np.sqrt(np.linalg.inv(dct_lhs).diagonal()))
-                j += nk
-
-        cov_error_i = []
-        j = 0
-        for sel_block in [trm.m0_l_odd, trm.lm_odd, trm.lm_odd]:
-            for m in np.unique(mm[sel_block]):
-                n = len(ll[sel_block][mm[sel_block] == m])
-                nk = int(np.ceil(n / dl))
-                dct_C_Dinv = np.diag(np.repeat([1 / cov_error_i_tild[j:j + nk] ** 2], np.ceil(n / float(nk)))[:n])
-                dct_C_Dinv *= (n / float(nk)) ** 2
-                dct_mat = util.get_dct2(n, n)
-                dct_lhs = np.dot(dct_C_Dinv.T.dot(dct_mat.T).T, dct_mat.T)
-                cov_error_i.extend(np.sqrt(np.linalg.inv(dct_lhs).diagonal()))
-                j += nk
-
-        cov_error_r = np.array(cov_error_r)
-        cov_error_i = np.array(cov_error_i)
-    else:
-        cov_error_r = cov_error_r_tild
-        cov_error_i = cov_error_i_tild
-
-    cov_error = np.abs(trm.recombine(cov_error_r, cov_error_i))
-
-    print "Done in %.2f s" % (time.time() - t)
+        cov_error = np.zeros_like(ll)
 
     print '\nStarting CG inversion for the real visibilities ...'
     start = time.time()

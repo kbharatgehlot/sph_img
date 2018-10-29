@@ -729,7 +729,7 @@ def sparse_to_dense_weave(sparse, idx_x, idx_y):
     return res
 
 
-def get_jn_fast_weave(ll, ru, fct=sparse_to_dense_weave_openmp):
+def get_jn_fast_weave(ll, ru, fct=sparse_to_dense_weave):
     uniq, idx = np.unique(ll, return_inverse=True)
     uniq_r, idx_r = np.unique(ru, return_inverse=True)
     # print sph_jn(max(uniq), 2 * np.pi * uniq_r[0])
@@ -865,8 +865,8 @@ def cartmap2healpix(cart_map, res, nside):
         nside: The healpix nside parameter, must be power of 2 and should match res '''
 
     nx, ny = cart_map.shape
-    x = (np.arange(nx) - nx / 2) * res
-    y = (np.arange(ny) - ny / 2) * res
+    x = np.arcsin((np.arange(nx) - nx / 2) * res)
+    y = np.arcsin((np.arange(ny) - ny / 2) * res)
 
     hp_map = np.zeros(hp.nside2npix(nside))
     thetas, phis = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
@@ -874,7 +874,7 @@ def cartmap2healpix(cart_map, res, nside):
 
     interp_fct = RectBivariateSpline(x, y, cart_map)
 
-    idx = (thetas < min(nx, ny) / 2 * res)
+    idx = (thetas < np.arcsin(0.5 * min(nx, ny) * res))
     hp_map[idx] = interp_fct.ev(sph_x[idx], sph_y[idx])
 
     return hp_map

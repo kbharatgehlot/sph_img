@@ -57,7 +57,7 @@ def do_inversion(config, result_dir):
     if config.out_dl != config.inp_dl or config.out_dm != config.inp_dm \
             or config.out_mmax != config.inp_mmax or config.out_mmax_strip != config.inp_mmax_strip \
             or config.out_theta_max != config.inp_theta_max or config.out_mmax_bias != config.inp_mmax_bias \
-            or config.out_lmax != config.inp_lmax:
+            or config.out_lmax != config.inp_lmax or config.out_lm_even_only != config.inp_lm_even_only:
         global_sel_ylm = util.SplittedYlmMatrix(sel_ll, sel_mm, uphis, uthetas, rb,
                                                 config.cache_dir, keep_in_mem=config.keep_in_mem)
     else:
@@ -157,6 +157,8 @@ def do_inversion(config, result_dir):
 
         sel_alm = alm[idx]
 
+        print len(sel_ll), len(sel_alm), len(inp_ll), len(alm)
+
         if global_sel_ylm != global_inp_ylm:
             t = time.time()
             print "Building transformation matrix...",
@@ -170,14 +172,16 @@ def do_inversion(config, result_dir):
         alm_rec, alm_rec_noise, Vrec, cov_error = sphimg.alm_ml_inversion(sel_ll, sel_mm, Vobs, uphis, uthetas,
                                                                           i, trm, config)
 
+        print len(alm_rec)
+
         # Convert back to Kelvin
         alm_rec = alm_rec * jy2k
         alm_rec_noise = alm_rec_noise * jy2k
         cov_error = cov_error * jy2k
 
         # Saving full alm before post-processing
-        sphimg.save_alm(result_freq_dir, sel_ll, sel_mm, sel_alm, fg_alms[i][idx],
-                        eor_alms[i][idx], alm_rec, alm_rec_noise, cov_error, filename='alm_full.dat')
+        # sphimg.save_alm(result_freq_dir, sel_ll, sel_mm, sel_alm, fg_alms[i][idx],
+        #                 eor_alms[i][idx], alm_rec, alm_rec_noise, cov_error, filename='alm_full.dat')
 
         t = time.time()
         print "Post processing...",
@@ -194,9 +198,9 @@ def do_inversion(config, result_dir):
 
         alms_rec.append(alm_rec)
 
-        sphimg.save_alm(result_freq_dir, sel_ll, sel_mm, sel_alm, sel_fg,
-                        sel_eor, alm_rec, alm_rec_noise, cov_error)
-        sphimg.save_visibilities(result_freq_dir, ru, uphis, uthetas, V, Vobs, Vrec)
+        # sphimg.save_alm(result_freq_dir, sel_ll, sel_mm, sel_alm, sel_fg,
+        #                 sel_eor, alm_rec, alm_rec_noise, cov_error)
+        # sphimg.save_visibilities(result_freq_dir, ru, uphis, uthetas, V, Vobs, Vrec)
 
         sel_vlm = util.alm2vlm(sel_alm, sel_ll)
         vlm_rec = util.alm2vlm(alm_rec, sel_ll)
